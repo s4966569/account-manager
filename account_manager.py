@@ -82,22 +82,22 @@ class AccountManager:
         self.list_frame = ttk.LabelFrame(self.root, text="账号列表")
         self.list_frame.place(x=10, y=10, width=600, height=580)
         
-        # 创建Treeview - 手机号列放到最后面
-        columns = ("name", "tpp_rank", "fpp_rank", "status", "unban_time", "phone")
+        # 创建Treeview - 手机号列放到最后面，交换TPP和FPP位置
+        columns = ("name", "fpp_rank", "tpp_rank", "status", "unban_time", "phone")
         self.tree = ttk.Treeview(self.list_frame, columns=columns, show="headings", selectmode="browse")
         
-        # 设置列标题
+        # 设置列标题 - 删除旧的排序命令
         self.tree.heading("name", text="账号名称")
-        self.tree.heading("tpp_rank", text="TPP段位", command=lambda: self.treeview_sort_column("tpp_rank"))
-        self.tree.heading("fpp_rank", text="FPP段位", command=lambda: self.treeview_sort_column("fpp_rank"))
-        self.tree.heading("status", text="状态", command=lambda: self.treeview_sort_column("status"))
-        self.tree.heading("unban_time", text="解封时间", command=lambda: self.treeview_sort_column("unban_time"))
+        self.tree.heading("fpp_rank", text="FPP段位")
+        self.tree.heading("tpp_rank", text="TPP段位")
+        self.tree.heading("status", text="状态")
+        self.tree.heading("unban_time", text="解封时间")
         self.tree.heading("phone", text="手机号")
         
         # 设置列宽
         self.tree.column("name", width=100)
-        self.tree.column("tpp_rank", width=80)
         self.tree.column("fpp_rank", width=80)
+        self.tree.column("tpp_rank", width=80)
         self.tree.column("status", width=50)
         self.tree.column("unban_time", width=150)
         self.tree.column("phone", width=100)
@@ -421,13 +421,13 @@ class AccountManager:
                 reverse=False  # 默认从低到高
             )
         
-        # 添加账号数据，手机号放到最后面
+        # 添加账号数据，交换TPP和FPP位置
         for account in sorted_accounts:
             status = "❌" if account["status"] else "✅"
             self.tree.insert("", "end", values=(
                 account["name"],
-                account["tpp_rank"],
                 account["fpp_rank"],
+                account["tpp_rank"],
                 status,
                 account["unban_time"],
                 account["phone"]
