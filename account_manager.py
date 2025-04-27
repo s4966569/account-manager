@@ -86,12 +86,12 @@ class AccountManager:
         columns = ("name", "tpp_rank", "fpp_rank", "status", "unban_time", "phone")
         self.tree = ttk.Treeview(self.list_frame, columns=columns, show="headings", selectmode="browse")
         
-        # 设置列标题 - 删除旧的排序命令
+        # 设置列标题
         self.tree.heading("name", text="账号名称")
-        self.tree.heading("tpp_rank", text="TPP段位")
-        self.tree.heading("fpp_rank", text="FPP段位")
-        self.tree.heading("status", text="状态")
-        self.tree.heading("unban_time", text="解封时间")
+        self.tree.heading("tpp_rank", text="TPP段位", command=lambda: self.treeview_sort_column("tpp_rank"))
+        self.tree.heading("fpp_rank", text="FPP段位", command=lambda: self.treeview_sort_column("fpp_rank"))
+        self.tree.heading("status", text="状态", command=lambda: self.treeview_sort_column("status"))
+        self.tree.heading("unban_time", text="解封时间", command=lambda: self.treeview_sort_column("unban_time"))
         self.tree.heading("phone", text="手机号")
         
         # 设置列宽
@@ -110,24 +110,11 @@ class AccountManager:
         self.tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
         
+        # 绑定选择事件
+        self.tree.bind("<<TreeviewSelect>>", self.on_account_selected)
+        
         # 绑定双击事件以复制账号名称
         self.tree.bind("<Double-1>", self.copy_account_name)
-        
-        # 添加排序按钮区域
-        sort_frame = ttk.Frame(self.list_frame)
-        sort_frame.pack(side="bottom", fill="x", pady=5)
-        
-        # 添加排序按钮
-        ttk.Label(sort_frame, text="排序:").pack(side="left", padx=5)
-        ttk.Button(sort_frame, text="TPP段位", command=lambda: self.force_sort("tpp_rank")).pack(side="left", padx=2)
-        ttk.Button(sort_frame, text="FPP段位", command=lambda: self.force_sort("fpp_rank")).pack(side="left", padx=2)
-        ttk.Button(sort_frame, text="状态", command=lambda: self.force_sort("status")).pack(side="left", padx=2)
-        ttk.Button(sort_frame, text="解封时间", command=lambda: self.force_sort("unban_time")).pack(side="left", padx=2)
-        
-        # 排序方向切换按钮
-        self.sort_direction_var = tk.StringVar(value="升序")
-        ttk.Button(sort_frame, textvariable=self.sort_direction_var, 
-                  command=self.toggle_sort_direction).pack(side="left", padx=5)
     
     def create_account_form(self):
         """创建账号表单"""
@@ -372,55 +359,6 @@ class AccountManager:
     
     def update_treeview(self):
         """更新账号列表"""
-        # 完全重建树状视图
-        self.completely_rebuild_treeview()
-    
-    def toggle_sort_direction(self):
-        """切换排序方向"""
-        self.sort_reverse = not self.sort_reverse
-        self.sort_direction_var.set("降序" if self.sort_reverse else "升序")
-        
-        # 如果当前有排序列，则重新排序
-        if self.sort_column:
-            self.force_sort(self.sort_column)
-    
-    def force_sort(self, column):
-        """强制按指定列排序"""
-        # 清除之前的排序标记
-        if self.sort_column:
-            old_text = self.tree.heading(self.sort_column, option="text")
-            if old_text.endswith(" ▲") or old_text.endswith(" ▼"):
-                self.tree.heading(self.sort_column, text=old_text[:-2])
-        
-        # 设置新的排序列
-        self.sort_column = column
-        
-        # 更新列标题显示排序方向
-        column_text = self.tree.heading(column, option="text")
-        if column_text.endswith(" ▲") or column_text.endswith(" ▼"):
-            column_text = column_text[:-2]
-        
-        direction_mark = " ▼" if self.sort_reverse else " ▲"
-        self.tree.heading(column, text=column_text + direction_mark)
-        
-        # 执行排序
-        self.completely_rebuild_treeview()
-        
-        # 显示排序状态
-        column_name = {
-            "tpp_rank": "TPP段位",
-            "fpp_rank": "FPP段位",
-            "status": "状态",
-            "unban_time": "解封时间"
-        }.get(column, column)
-        direction = "降序" if self.sort_reverse else "升序"
-        self.status_message.set(f"已按{column_name}进行{direction}排序")
-        
-        # 3秒后清空状态栏
-        self.root.after(3000, lambda: self.status_message.set(""))
-    
-    def completely_rebuild_treeview(self):
-        """完全重建树状视图（强制重新排序和显示）"""
         # 清空现有数据
         for item in self.tree.get_children():
             self.tree.delete(item)
@@ -434,53 +372,56 @@ class AccountManager:
         stats_text = f"账号列表 (共{total_accounts}个账号，封禁中{banned_accounts}个，未封禁{unbanned_accounts}个)"
         self.list_frame.configure(text=stats_text)
         
-        # 复制账号列表进行排序
+        # 排序账号数据
         sorted_accounts = self.accounts.copy()
         
-        # 处理特殊排序列
-        if self.sort_column == "tpp_rank" or self.sort_column == "fpp_rank":
-            # 按段位排序
-            sorted_accounts.sort(
-                key=lambda x: self.rank_map.get(x[self.sort_column], 0),
-                reverse=self.sort_reverse
-            )
-        elif self.sort_column == "status":
-            # 按状态排序
-            sorted_accounts.sort(
-                key=lambda x: x["status"],
-                reverse=self.sort_reverse
-            )
-        elif self.sort_column == "unban_time":
-            # 按解封时间排序
-            def unban_time_key(account):
-                # 首先按照是否封禁分组
-                if not account["status"]:  # 未封禁
-                    # 未封禁的账号始终排在封禁账号的前面
-                    return (0, datetime.datetime.min)
+        # 检查是否所有账号都是未封禁状态
+        all_unbanned = all(not account["status"] for account in sorted_accounts)
+        
+        if self.sort_column:
+            if self.sort_column == "tpp_rank" or self.sort_column == "fpp_rank":
+                # 按段位排序（使用预设的段位序列）
+                sorted_accounts.sort(
+                    key=lambda x: self.rank_map.get(x[self.sort_column], 0),
+                    reverse=self.sort_reverse
+                )
+            elif self.sort_column == "status":
+                # 按状态排序（True表示封禁，False表示正常）
+                sorted_accounts.sort(
+                    key=lambda x: x["status"],
+                    reverse=self.sort_reverse
+                )
+            elif self.sort_column == "unban_time":
+                # 按解封时间排序
+                def unban_time_key(account):
+                    # 首先按照是否封禁分组
+                    if not account["status"]:  # 未封禁
+                        # 未封禁的账号始终排在封禁账号的前面
+                        return (0, datetime.datetime.min)
+                    
+                    # 已封禁的账号，按解封时间排序
+                    unban_time = account["unban_time"]
+                    if not unban_time:
+                        return (1, datetime.datetime.max)  # 没有解封时间但已封禁
+                    
+                    try:
+                        return (1, datetime.datetime.strptime(unban_time, "%Y-%m-%d %H:%M:%S"))
+                    except:
+                        # 解析失败的
+                        return (1, datetime.datetime.max)
                 
-                # 已封禁的账号，按解封时间排序
-                unban_time = account["unban_time"]
-                if not unban_time:
-                    return (1, datetime.datetime.max)  # 没有解封时间但已封禁
-                
-                try:
-                    return (1, datetime.datetime.strptime(unban_time, "%Y-%m-%d %H:%M:%S"))
-                except:
-                    # 解析失败的
-                    return (1, datetime.datetime.max)
-            
-            sorted_accounts.sort(
-                key=unban_time_key,
-                reverse=self.sort_reverse
-            )
-        elif not self.sort_column and all(not account["status"] for account in sorted_accounts):
-            # 默认排序：如果没有排序列且所有账号都是未封禁状态，则按TPP段位排序
+                sorted_accounts.sort(
+                    key=unban_time_key,
+                    reverse=self.sort_reverse
+                )
+        # 默认排序：如果没有指定排序列且所有账号都是未封禁状态，则按TPP段位排序
+        elif all_unbanned:
             sorted_accounts.sort(
                 key=lambda x: self.rank_map.get(x["tpp_rank"], 0),
-                reverse=False
+                reverse=False  # 默认从低到高
             )
         
-        # 添加账号数据
+        # 添加账号数据，手机号放到最后面
         for account in sorted_accounts:
             status = "❌" if account["status"] else "✅"
             self.tree.insert("", "end", values=(
@@ -491,6 +432,61 @@ class AccountManager:
                 account["unban_time"],
                 account["phone"]
             ))
+    
+    def on_account_selected(self, event):
+        """选中账号时的处理"""
+        selection = self.tree.selection()
+        if not selection:
+            return
+        
+        item = self.tree.item(selection[0])
+        selected_name = item["values"][0]
+        
+        # 查找对应的账号
+        for i, account in enumerate(self.accounts):
+            if account["name"] == selected_name:
+                self.current_account_id = i
+                self.name_var.set(account["name"])
+                self.password_var.set(account["password"])
+                self.tpp_rank_var.set(account["tpp_rank"])
+                self.fpp_rank_var.set(account["fpp_rank"])
+                self.phone_var.set(account["phone"])
+                self.status_var.set(account["status"])
+                self.unban_time_var.set(account["unban_time"])
+                
+                # 根据状态和解封时间设置封禁时长
+                if not account["status"]:
+                    self.ban_duration_var.set("无")
+                elif account["unban_time"]:
+                    # 尝试根据解封时间推断封禁时长
+                    try:
+                        unban_time = datetime.datetime.strptime(account["unban_time"], "%Y-%m-%d %H:%M:%S")
+                        now = datetime.datetime.now()
+                        delta = unban_time - now
+                        hours = delta.total_seconds() / 3600
+                        
+                        # 检查是否匹配标准时长
+                        if hours <= 0:
+                            self.ban_duration_var.set("无")
+                        elif abs(hours - 24) < 1:
+                            self.ban_duration_var.set("24小时")
+                        elif abs(hours - 72) < 1:
+                            self.ban_duration_var.set("72小时")
+                        elif abs(hours - 7*24) < 3:
+                            self.ban_duration_var.set("7天")
+                        elif abs(hours - 15*24) < 5:
+                            self.ban_duration_var.set("15天")
+                        elif abs(hours - 30*24) < 10:
+                            self.ban_duration_var.set("30天")
+                        else:
+                            self.ban_duration_var.set("自定义")
+                    except:
+                        # 如果解析失败，使用自定义
+                        self.ban_duration_var.set("自定义")
+                else:
+                    self.ban_duration_var.set("24小时")
+                
+                break
     
     def copy_account_name(self, event):
         """复制账号名称到剪贴板"""
@@ -507,6 +503,31 @@ class AccountManager:
         
         # 在状态栏显示提示
         self.status_message.set(f"已复制账号：{account_name}")
+        
+        # 3秒后清空状态栏
+        self.root.after(3000, lambda: self.status_message.set(""))
+    
+    def treeview_sort_column(self, column):
+        """对treeview的列进行排序"""
+        # 如果点击的是当前排序列，则切换排序方向
+        if self.sort_column == column:
+            self.sort_reverse = not self.sort_reverse
+        else:
+            self.sort_column = column
+            self.sort_reverse = False
+        
+        # 排序后更新treeview
+        self.update_treeview()
+        
+        # 显示排序状态
+        direction = "降序" if self.sort_reverse else "升序"
+        column_name = {
+            "tpp_rank": "TPP段位",
+            "fpp_rank": "FPP段位",
+            "status": "状态",
+            "unban_time": "解封时间"
+        }.get(column, column)
+        self.status_message.set(f"已按{column_name}进行{direction}排序")
         
         # 3秒后清空状态栏
         self.root.after(3000, lambda: self.status_message.set(""))
