@@ -102,6 +102,9 @@ class AccountManager:
         # 创建右侧表单
         self.create_account_form()
         
+        # 创建刷新按钮
+        ttk.Button(self.root, text="刷新状态", command=self.refresh_ban_status, width=10).place(x=550, y=0)
+        
         # 创建状态栏
         status_bar = ttk.Label(self.root, textvariable=self.status_message, relief=tk.SUNKEN, anchor=tk.W)
         status_bar.pack(side=tk.BOTTOM, fill=tk.X)
@@ -111,11 +114,6 @@ class AccountManager:
         # 创建Frame - 增加宽度从600到800
         self.list_frame = ttk.LabelFrame(self.root, text="账号列表")
         self.list_frame.place(x=10, y=10, width=800, height=580)
-        
-        # 添加刷新按钮
-        refresh_frame = ttk.Frame(self.list_frame)
-        refresh_frame.pack(side="top", fill="x", padx=5, pady=5)
-        ttk.Button(refresh_frame, text="刷新状态", command=self.refresh_ban_status).pack(side="right")
         
         # 创建Treeview - 添加id列在手机号后面
         columns = ("name", "fpp_rank", "tpp_rank", "status", "unban_time", "phone", "id", "note")
