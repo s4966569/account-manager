@@ -82,17 +82,18 @@ class AccountManager:
         self.list_frame = ttk.LabelFrame(self.root, text="账号列表")
         self.list_frame.place(x=10, y=10, width=600, height=580)
         
-        # 创建Treeview - 手机号列放到最后面，交换TPP和FPP位置
-        columns = ("name", "fpp_rank", "tpp_rank", "status", "unban_time", "phone")
+        # 创建Treeview - 添加备注列
+        columns = ("name", "fpp_rank", "tpp_rank", "status", "unban_time", "phone", "note")
         self.tree = ttk.Treeview(self.list_frame, columns=columns, show="headings", selectmode="browse")
         
-        # 设置列标题 - 删除旧的排序命令
+        # 设置列标题
         self.tree.heading("name", text="账号名称")
         self.tree.heading("fpp_rank", text="FPP段位")
         self.tree.heading("tpp_rank", text="TPP段位")
         self.tree.heading("status", text="状态")
         self.tree.heading("unban_time", text="解封时间")
         self.tree.heading("phone", text="手机号")
+        self.tree.heading("note", text="备注")
         
         # 设置列宽
         self.tree.column("name", width=100)
@@ -101,6 +102,7 @@ class AccountManager:
         self.tree.column("status", width=50)
         self.tree.column("unban_time", width=150)
         self.tree.column("phone", width=100)
+        self.tree.column("note", width=150)
         
         # 添加滚动条
         scrollbar = ttk.Scrollbar(self.list_frame, orient="vertical", command=self.tree.yview)
@@ -188,9 +190,14 @@ class AccountManager:
         for duration in self.ban_duration_options[4:]:
             ttk.Radiobutton(ban_row2, text=duration, variable=self.ban_duration_var, value=duration).pack(side="left", padx=5)
         
+        # 备注 - 改为3行高的文本框
+        ttk.Label(form_frame, text="备注:").grid(row=8, column=0, padx=10, pady=10, sticky="nw")
+        self.note_text = tk.Text(form_frame, width=30, height=3)
+        self.note_text.grid(row=8, column=1, padx=10, pady=10, sticky="w")
+        
         # 按钮区域
         btn_frame = ttk.Frame(form_frame)
-        btn_frame.grid(row=8, column=0, columnspan=2, pady=20)
+        btn_frame.grid(row=9, column=0, columnspan=2, pady=20)
         
         ttk.Button(btn_frame, text="新建", command=self.clear_form).pack(side="left", padx=10)
         ttk.Button(btn_frame, text="保存", command=self.save_account).pack(side="left", padx=10)
@@ -207,6 +214,9 @@ class AccountManager:
         self.status_var.set(False)
         self.unban_time_var.set("")
         self.ban_duration_var.set("无")  # 默认为"无"
+        
+        # 清空备注文本框
+        self.note_text.delete("1.0", tk.END)
         
         # 取消选择
         if self.tree.selection():
@@ -319,6 +329,9 @@ class AccountManager:
         if self.status_var.get():
             self.calculate_unban_time()
         
+        # 获取备注文本
+        note_text = self.note_text.get("1.0", tk.END).strip()
+        
         account = {
             "name": name,
             "password": self.password_var.get(),
@@ -326,7 +339,8 @@ class AccountManager:
             "fpp_rank": self.fpp_rank_var.get(),
             "phone": self.phone_var.get(),
             "status": self.status_var.get(),
-            "unban_time": self.unban_time_var.get()
+            "unban_time": self.unban_time_var.get(),
+            "note": note_text  # 使用Text控件的内容
         }
         
         if hasattr(self, 'current_account_id') and self.current_account_id is not None:
@@ -421,16 +435,19 @@ class AccountManager:
                 reverse=False  # 默认从低到高
             )
         
-        # 添加账号数据，交换TPP和FPP位置
+        # 添加账号数据，包括备注列
         for account in sorted_accounts:
             status = "❌" if account["status"] else "✅"
+            # 确保账号对象有备注字段
+            note = account.get("note", "")
             self.tree.insert("", "end", values=(
                 account["name"],
                 account["fpp_rank"],
                 account["tpp_rank"],
                 status,
                 account["unban_time"],
-                account["phone"]
+                account["phone"],
+                note
             ))
     
     def on_account_selected(self, event):
@@ -440,7 +457,8 @@ class AccountManager:
             return
         
         item = self.tree.item(selection[0])
-        selected_name = item["values"][0]
+        values = item["values"]
+        selected_name = values[0]
         
         # 查找对应的账号
         for i, account in enumerate(self.accounts):
@@ -453,6 +471,11 @@ class AccountManager:
                 self.phone_var.set(account["phone"])
                 self.status_var.set(account["status"])
                 self.unban_time_var.set(account["unban_time"])
+                
+                # 设置备注（如果有）- 使用Text控件
+                self.note_text.delete("1.0", tk.END)
+                if "note" in account and account["note"]:
+                    self.note_text.insert("1.0", account["note"])
                 
                 # 根据状态和解封时间设置封禁时长
                 if not account["status"]:
