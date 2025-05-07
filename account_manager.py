@@ -8,7 +8,7 @@ class AccountManager:
     def __init__(self, root):
         self.root = root
         self.root.title("账号管理器")
-        self.root.geometry("1000x600")
+        self.root.geometry("1200x600")
         self.root.resizable(True, True)
         
         # 数据文件路径
@@ -80,7 +80,7 @@ class AccountManager:
         """创建账号列表"""
         # 创建Frame
         self.list_frame = ttk.LabelFrame(self.root, text="账号列表")
-        self.list_frame.place(x=10, y=10, width=600, height=580)
+        self.list_frame.place(x=10, y=10, width=800, height=580)
         
         # 创建Treeview - 添加备注列
         columns = ("name", "fpp_rank", "tpp_rank", "status", "unban_time", "phone", "note")
@@ -99,10 +99,10 @@ class AccountManager:
         self.tree.column("name", width=100)
         self.tree.column("fpp_rank", width=80)
         self.tree.column("tpp_rank", width=80)
-        self.tree.column("status", width=50)
+        self.tree.column("status", width=60)
         self.tree.column("unban_time", width=150)
         self.tree.column("phone", width=100)
-        self.tree.column("note", width=150)
+        self.tree.column("note", width=200)
         
         # 添加滚动条
         scrollbar = ttk.Scrollbar(self.list_frame, orient="vertical", command=self.tree.yview)
@@ -122,7 +122,7 @@ class AccountManager:
         """创建账号表单"""
         # 创建Frame
         form_frame = ttk.LabelFrame(self.root, text="账号详情")
-        form_frame.place(x=620, y=10, width=370, height=580)
+        form_frame.place(x=820, y=10, width=370, height=580)
         
         # 账号名称
         ttk.Label(form_frame, text="账号名称:").grid(row=0, column=0, padx=10, pady=10, sticky="w")
