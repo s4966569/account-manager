@@ -61,6 +61,31 @@ class AccountManager:
                     self.accounts = json.load(f)
             except:
                 self.accounts = []
+        
+        # 启动时检查并更新封禁状态
+        self.update_ban_status()
+    
+    def update_ban_status(self):
+        """检查并更新账号的封禁状态"""
+        current_time = datetime.datetime.now()
+        status_updated = False
+        
+        for account in self.accounts:
+            if account["status"] and account["unban_time"]:
+                try:
+                    unban_time = datetime.datetime.strptime(account["unban_time"], "%Y-%m-%d %H:%M:%S")
+                    # 判断解封时间是否已过期
+                    if current_time >= unban_time:
+                        account["status"] = False  # 更新为正常状态
+                        account["unban_time"] = ""  # 清空解封时间
+                        status_updated = True
+                except:
+                    # 日期格式无效，忽略
+                    pass
+        
+        # 如果有状态更新，保存到文件
+        if status_updated:
+            self.save_accounts()
     
     def save_accounts(self):
         """保存账号数据到文件"""
