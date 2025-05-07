@@ -12,7 +12,7 @@ class AccountManager:
         self.root.resizable(True, True)
         
         # 数据文件路径
-        self.data_file = "accounts.json"
+        self.data_file = os.path.join(os.path.dirname(__file__), "accounts.json")
         
         # 账号数据
         self.accounts = []
