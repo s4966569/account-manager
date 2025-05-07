@@ -495,12 +495,22 @@ class AccountManager:
             # 确保账号对象有备注字段和ID字段
             note = account.get("note", "")
             account_id = account.get("id", "")
+            
+            # 格式化解封时间为简略格式
+            unban_time_display = ""
+            if account["status"] and account["unban_time"]:
+                try:
+                    unban_time = datetime.datetime.strptime(account["unban_time"], "%Y-%m-%d %H:%M:%S")
+                    unban_time_display = unban_time.strftime("%m-%d %H:%M")
+                except:
+                    unban_time_display = account["unban_time"]
+            
             self.tree.insert("", "end", values=(
                 account["name"],
                 account["fpp_rank"],
                 account["tpp_rank"],
                 status,
-                account["unban_time"],
+                unban_time_display,
                 account["phone"],
                 account_id,
                 note
