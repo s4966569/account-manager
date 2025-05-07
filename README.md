@@ -25,6 +25,16 @@
 python account_manager.py
 ```
 
+## 打包成exe
+1. 安装 PyInstaller
+```
+pip install pyinstaller
+```
+2. 打包
+```
+pyinstaller build.spec
+```
+
 ## 使用说明
 
 - **添加账号**：点击"新建"按钮，填写账号信息，然后点击"保存"
