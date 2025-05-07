@@ -208,7 +208,7 @@ class AccountManager:
         # 密码
         ttk.Label(form_frame, text="密码:").grid(row=1, column=0, padx=10, pady=10, sticky="w")
         self.password_var = tk.StringVar()
-        ttk.Entry(form_frame, textvariable=self.password_var, width=30, show="*").grid(row=1, column=1, padx=10, pady=10)
+        ttk.Entry(form_frame, textvariable=self.password_var, width=30).grid(row=1, column=1, padx=10, pady=10)
         
         # TPP段位
         ttk.Label(form_frame, text="TPP段位:").grid(row=2, column=0, padx=10, pady=10, sticky="w")
