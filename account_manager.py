@@ -78,7 +78,7 @@ class AccountManager:
     
     def create_account_list(self):
         """创建账号列表"""
-        # 创建Frame
+        # 创建Frame - 增加宽度从600到800
         self.list_frame = ttk.LabelFrame(self.root, text="账号列表")
         self.list_frame.place(x=10, y=10, width=800, height=580)
         
@@ -86,23 +86,23 @@ class AccountManager:
         columns = ("name", "fpp_rank", "tpp_rank", "status", "unban_time", "phone", "note")
         self.tree = ttk.Treeview(self.list_frame, columns=columns, show="headings", selectmode="browse")
         
-        # 设置列标题
+        # 设置列标题，重新添加排序功能
         self.tree.heading("name", text="账号名称")
-        self.tree.heading("fpp_rank", text="FPP段位")
-        self.tree.heading("tpp_rank", text="TPP段位")
-        self.tree.heading("status", text="状态")
-        self.tree.heading("unban_time", text="解封时间")
+        self.tree.heading("fpp_rank", text="FPP段位", command=lambda: self.force_sort("fpp_rank"))
+        self.tree.heading("tpp_rank", text="TPP段位", command=lambda: self.force_sort("tpp_rank"))
+        self.tree.heading("status", text="状态", command=lambda: self.force_sort("status"))
+        self.tree.heading("unban_time", text="解封时间", command=lambda: self.force_sort("unban_time"))
         self.tree.heading("phone", text="手机号")
         self.tree.heading("note", text="备注")
         
-        # 设置列宽
+        # 调整列宽以适应表格总宽度
         self.tree.column("name", width=100)
         self.tree.column("fpp_rank", width=80)
         self.tree.column("tpp_rank", width=80)
         self.tree.column("status", width=60)
         self.tree.column("unban_time", width=150)
         self.tree.column("phone", width=100)
-        self.tree.column("note", width=200)
+        self.tree.column("note", width=200)  # 增加备注列的宽度
         
         # 添加滚动条
         scrollbar = ttk.Scrollbar(self.list_frame, orient="vertical", command=self.tree.yview)
@@ -112,11 +112,11 @@ class AccountManager:
         self.tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
         
-        # 绑定选择事件
-        self.tree.bind("<<TreeviewSelect>>", self.on_account_selected)
-        
         # 绑定双击事件以复制账号名称
         self.tree.bind("<Double-1>", self.copy_account_name)
+        
+        # 绑定单击事件以选择账号
+        self.tree.bind("<<TreeviewSelect>>", self.on_account_selected)
     
     def create_account_form(self):
         """创建账号表单"""
@@ -550,6 +550,44 @@ class AccountManager:
             "status": "状态",
             "unban_time": "解封时间"
         }.get(column, column)
+        self.status_message.set(f"已按{column_name}进行{direction}排序")
+        
+        # 3秒后清空状态栏
+        self.root.after(3000, lambda: self.status_message.set(""))
+
+    def force_sort(self, column):
+        """强制对指定列进行排序"""
+        # 如果点击的是当前排序列，则切换排序方向
+        if self.sort_column == column:
+            self.sort_reverse = not self.sort_reverse
+        else:
+            # 如果点击的是新列，设置为该列的升序排序
+            self.sort_column = column
+            self.sort_reverse = False
+        
+        # 更新列标题显示排序方向
+        for col in self.tree["columns"]:
+            # 先清除所有列的排序标记
+            current_text = self.tree.heading(col, option="text")
+            if current_text.endswith(" ▲") or current_text.endswith(" ▼"):
+                self.tree.heading(col, text=current_text[:-2])
+        
+        # 为当前排序列添加方向标记
+        current_text = self.tree.heading(column, option="text")
+        direction_mark = " ▼" if self.sort_reverse else " ▲"
+        self.tree.heading(column, text=current_text + direction_mark)
+        
+        # 执行排序
+        self.update_treeview()
+        
+        # 显示排序状态
+        column_name = {
+            "tpp_rank": "TPP段位",
+            "fpp_rank": "FPP段位",
+            "status": "状态",
+            "unban_time": "解封时间"
+        }.get(column, column)
+        direction = "降序" if self.sort_reverse else "升序"
         self.status_message.set(f"已按{column_name}进行{direction}排序")
         
         # 3秒后清空状态栏
