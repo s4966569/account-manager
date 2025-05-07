@@ -41,14 +41,17 @@ class AccountManager:
         self.status_message = tk.StringVar()
         
         # 排序相关变量
-        self.sort_column = ""  # 当前排序的列
-        self.sort_reverse = False  # 是否逆序
+        self.sort_column = "unban_time"  # 默认排序列为解封时间
+        self.sort_reverse = False  # 默认升序排列
         
         # 统计信息变量
         self.stats_var = tk.StringVar(value="账号列表")
         
         self.create_widgets()
         self.update_treeview()
+        
+        # 初始排序时添加排序标记
+        self.update_sort_indicator()
     
     def load_accounts(self):
         """从文件加载账号数据"""
@@ -592,6 +595,19 @@ class AccountManager:
         
         # 3秒后清空状态栏
         self.root.after(3000, lambda: self.status_message.set(""))
+
+    def update_sort_indicator(self):
+        """更新排序指示器"""
+        if not self.sort_column:
+            return
+            
+        # 添加排序标记
+        current_text = self.tree.heading(self.sort_column, option="text")
+        if current_text.endswith(" ▲") or current_text.endswith(" ▼"):
+            current_text = current_text[:-2]
+            
+        direction_mark = " ▼" if self.sort_reverse else " ▲"
+        self.tree.heading(self.sort_column, text=current_text + direction_mark)
 
 if __name__ == "__main__":
     root = tk.Tk()
