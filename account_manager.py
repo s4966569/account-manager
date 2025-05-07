@@ -85,8 +85,8 @@ class AccountManager:
         self.list_frame = ttk.LabelFrame(self.root, text="账号列表")
         self.list_frame.place(x=10, y=10, width=800, height=580)
         
-        # 创建Treeview - 添加备注列
-        columns = ("name", "fpp_rank", "tpp_rank", "status", "unban_time", "phone", "note")
+        # 创建Treeview - 添加id列在手机号后面
+        columns = ("name", "fpp_rank", "tpp_rank", "status", "unban_time", "phone", "id", "note")
         self.tree = ttk.Treeview(self.list_frame, columns=columns, show="headings", selectmode="browse")
         
         # 设置列标题，重新添加排序功能
@@ -96,6 +96,7 @@ class AccountManager:
         self.tree.heading("status", text="状态", command=lambda: self.force_sort("status"))
         self.tree.heading("unban_time", text="解封时间", command=lambda: self.force_sort("unban_time"))
         self.tree.heading("phone", text="手机号")
+        self.tree.heading("id", text="ID")
         self.tree.heading("note", text="备注")
         
         # 调整列宽以适应表格总宽度
@@ -105,7 +106,8 @@ class AccountManager:
         self.tree.column("status", width=60)
         self.tree.column("unban_time", width=150)
         self.tree.column("phone", width=100)
-        self.tree.column("note", width=200)  # 增加备注列的宽度
+        self.tree.column("id", width=80)  # ID列宽
+        self.tree.column("note", width=150)
         
         # 添加滚动条
         scrollbar = ttk.Scrollbar(self.list_frame, orient="vertical", command=self.tree.yview)
@@ -115,15 +117,15 @@ class AccountManager:
         self.tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
         
-        # 绑定双击事件以复制账号名称
-        self.tree.bind("<Double-1>", self.copy_account_name)
+        # 绑定双击事件以复制内容
+        self.tree.bind("<Double-1>", self.copy_cell_content)
         
         # 绑定单击事件以选择账号
         self.tree.bind("<<TreeviewSelect>>", self.on_account_selected)
     
     def create_account_form(self):
         """创建账号表单"""
-        # 创建Frame
+        # 创建Frame - 右移表单
         form_frame = ttk.LabelFrame(self.root, text="账号详情")
         form_frame.place(x=820, y=10, width=370, height=580)
         
@@ -152,28 +154,33 @@ class AccountManager:
         self.phone_var = tk.StringVar()
         ttk.Entry(form_frame, textvariable=self.phone_var, width=30).grid(row=4, column=1, padx=10, pady=10)
         
+        # ID
+        ttk.Label(form_frame, text="ID:").grid(row=5, column=0, padx=10, pady=10, sticky="w")
+        self.id_var = tk.StringVar()
+        ttk.Entry(form_frame, textvariable=self.id_var, width=30).grid(row=5, column=1, padx=10, pady=10)
+        
         # 当前状态
-        ttk.Label(form_frame, text="封禁状态:").grid(row=5, column=0, padx=10, pady=10, sticky="w")
+        ttk.Label(form_frame, text="封禁状态:").grid(row=6, column=0, padx=10, pady=10, sticky="w")
         self.status_var = tk.BooleanVar()
         # 添加跟踪变量变化的回调
         self.status_var.trace_add("write", self.on_status_changed)
         
         status_frame = ttk.Frame(form_frame)
-        status_frame.grid(row=5, column=1, padx=10, pady=10, sticky="w")
+        status_frame.grid(row=6, column=1, padx=10, pady=10, sticky="w")
         ttk.Radiobutton(status_frame, text="正常 ✅", variable=self.status_var, value=False).pack(side="left")
         ttk.Radiobutton(status_frame, text="封禁 ❌", variable=self.status_var, value=True).pack(side="left", padx=10)
         
         # 解封时间
-        ttk.Label(form_frame, text="解封时间:").grid(row=6, column=0, padx=10, pady=10, sticky="w")
+        ttk.Label(form_frame, text="解封时间:").grid(row=7, column=0, padx=10, pady=10, sticky="w")
         self.unban_time_var = tk.StringVar()
         # 添加跟踪变量变化的回调，用于检测手动修改
         self.unban_time_var.trace_add("write", self.on_unban_time_changed)
-        ttk.Entry(form_frame, textvariable=self.unban_time_var, width=30).grid(row=6, column=1, padx=10, pady=10)
+        ttk.Entry(form_frame, textvariable=self.unban_time_var, width=30).grid(row=7, column=1, padx=10, pady=10)
         
         # 标记封禁 - 改为RadioButton横向排列
-        ttk.Label(form_frame, text="封禁时长:").grid(row=7, column=0, padx=10, pady=10, sticky="w")
+        ttk.Label(form_frame, text="封禁时长:").grid(row=8, column=0, padx=10, pady=10, sticky="w")
         ban_frame = ttk.Frame(form_frame)
-        ban_frame.grid(row=7, column=1, padx=10, pady=10, sticky="w")
+        ban_frame.grid(row=8, column=1, padx=10, pady=10, sticky="w")
         
         # 创建两行RadioButton，每行4个
         ban_row1 = ttk.Frame(ban_frame)
@@ -194,17 +201,59 @@ class AccountManager:
             ttk.Radiobutton(ban_row2, text=duration, variable=self.ban_duration_var, value=duration).pack(side="left", padx=5)
         
         # 备注 - 改为3行高的文本框
-        ttk.Label(form_frame, text="备注:").grid(row=8, column=0, padx=10, pady=10, sticky="nw")
+        ttk.Label(form_frame, text="备注:").grid(row=9, column=0, padx=10, pady=10, sticky="nw")
         self.note_text = tk.Text(form_frame, width=30, height=3)
-        self.note_text.grid(row=8, column=1, padx=10, pady=10, sticky="w")
+        self.note_text.grid(row=9, column=1, padx=10, pady=10, sticky="w")
         
         # 按钮区域
         btn_frame = ttk.Frame(form_frame)
-        btn_frame.grid(row=9, column=0, columnspan=2, pady=20)
+        btn_frame.grid(row=10, column=0, columnspan=2, pady=20)
         
         ttk.Button(btn_frame, text="新建", command=self.clear_form).pack(side="left", padx=10)
         ttk.Button(btn_frame, text="保存", command=self.save_account).pack(side="left", padx=10)
         ttk.Button(btn_frame, text="删除", command=self.delete_account).pack(side="left", padx=10)
+    
+    def copy_cell_content(self, event):
+        """根据双击的列复制相应内容"""
+        # 获取点击的项目和列
+        region = self.tree.identify("region", event.x, event.y)
+        if region != "cell":
+            return
+            
+        column = self.tree.identify_column(event.x)
+        column_index = int(column.replace('#', '')) - 1  # 将#1, #2等转换为0, 1等索引
+        
+        # 获取点击的行
+        item = self.tree.identify_row(event.y)
+        if not item:
+            return
+            
+        # 获取行中的值
+        values = self.tree.item(item, "values")
+        if not values or column_index >= len(values):
+            return
+            
+        # 获取列名
+        column_name = self.tree["columns"][column_index]
+        
+        # 只允许特定列可复制：账号名称、手机号、ID
+        allowed_columns = ["name", "phone", "id"]
+        if column_name not in allowed_columns:
+            return
+            
+        # 复制相应内容
+        content = values[column_index]
+        if content:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(content)
+            
+            # 显示提示信息
+            column_display_name = self.tree.heading(column_name, option="text")
+            if column_display_name.endswith(" ▲") or column_display_name.endswith(" ▼"):
+                column_display_name = column_display_name[:-2]
+                
+            self.status_message.set(f"已复制{column_display_name}：{content}")
+            self.root.after(3000, lambda: self.status_message.set(""))
     
     def clear_form(self):
         """清空表单"""
@@ -214,6 +263,7 @@ class AccountManager:
         self.tpp_rank_var.set("")
         self.fpp_rank_var.set("")
         self.phone_var.set("")
+        self.id_var.set("")  # 清空ID
         self.status_var.set(False)
         self.unban_time_var.set("")
         self.ban_duration_var.set("无")  # 默认为"无"
@@ -341,6 +391,7 @@ class AccountManager:
             "tpp_rank": self.tpp_rank_var.get(),
             "fpp_rank": self.fpp_rank_var.get(),
             "phone": self.phone_var.get(),
+            "id": self.id_var.get(),  # 保存ID
             "status": self.status_var.get(),
             "unban_time": self.unban_time_var.get(),
             "note": note_text  # 使用Text控件的内容
@@ -438,11 +489,12 @@ class AccountManager:
                 reverse=False  # 默认从低到高
             )
         
-        # 添加账号数据，包括备注列
+        # 添加账号数据，包括ID列
         for account in sorted_accounts:
             status = "❌" if account["status"] else "✅"
-            # 确保账号对象有备注字段
+            # 确保账号对象有备注字段和ID字段
             note = account.get("note", "")
+            account_id = account.get("id", "")
             self.tree.insert("", "end", values=(
                 account["name"],
                 account["fpp_rank"],
@@ -450,6 +502,7 @@ class AccountManager:
                 status,
                 account["unban_time"],
                 account["phone"],
+                account_id,
                 note
             ))
     
@@ -472,6 +525,7 @@ class AccountManager:
                 self.tpp_rank_var.set(account["tpp_rank"])
                 self.fpp_rank_var.set(account["fpp_rank"])
                 self.phone_var.set(account["phone"])
+                self.id_var.set(account.get("id", ""))  # 设置ID
                 self.status_var.set(account["status"])
                 self.unban_time_var.set(account["unban_time"])
                 
@@ -513,25 +567,6 @@ class AccountManager:
                     self.ban_duration_var.set("24小时")
                 
                 break
-    
-    def copy_account_name(self, event):
-        """复制账号名称到剪贴板"""
-        selection = self.tree.selection()
-        if not selection:
-            return
-        
-        item = self.tree.item(selection[0])
-        account_name = item["values"][0]
-        
-        # 将账号名称复制到剪贴板
-        self.root.clipboard_clear()
-        self.root.clipboard_append(account_name)
-        
-        # 在状态栏显示提示
-        self.status_message.set(f"已复制账号：{account_name}")
-        
-        # 3秒后清空状态栏
-        self.root.after(3000, lambda: self.status_message.set(""))
     
     def treeview_sort_column(self, column):
         """对treeview的列进行排序"""
