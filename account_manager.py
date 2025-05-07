@@ -3,6 +3,7 @@ from tkinter import ttk, messagebox
 import datetime
 import json
 import os
+import sys
 
 class AccountManager:
     def __init__(self, root):
@@ -11,8 +12,15 @@ class AccountManager:
         self.root.geometry("1200x600")
         self.root.resizable(True, True)
         
-        # 数据文件路径
-        self.data_file = os.path.join(os.path.dirname(__file__), "accounts.json")
+        # 数据文件路径 - 完全修改这部分
+        if getattr(sys, 'frozen', False):
+            # 打包后，使用exe所在目录而不是临时目录
+            self.data_file = os.path.join(os.path.dirname(sys.executable), "accounts.json")
+        else:
+            # 开发环境，使用脚本所在目录
+            self.data_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "accounts.json")
+        
+        print(f"数据文件位置: {self.data_file}")  # 添加调试信息
         
         # 账号数据
         self.accounts = []
@@ -91,8 +99,24 @@ class AccountManager:
     
     def save_accounts(self):
         """保存账号数据到文件"""
-        with open(self.data_file, 'w', encoding='utf-8') as f:
-            json.dump(self.accounts, f, ensure_ascii=False, indent=2)
+        try:
+            # 确保目录存在
+            directory = os.path.dirname(self.data_file)
+            if directory and not os.path.exists(directory):
+                os.makedirs(directory)
+            
+            with open(self.data_file, 'w', encoding='utf-8') as f:
+                json.dump(self.accounts, f, ensure_ascii=False, indent=2)
+            print(f"数据已成功保存到: {self.data_file}")  # 添加调试信息
+            self.status_message.set(f"数据已保存")
+            self.root.after(3000, lambda: self.status_message.set(""))
+            return True
+        except Exception as e:
+            error_msg = f"保存失败: {str(e)}\n路径: {self.data_file}"
+            print(error_msg)  # 添加调试信息
+            messagebox.showerror("保存错误", error_msg)
+            self.status_message.set("数据保存失败")
+            return False
     
     def create_widgets(self):
         """创建界面元素"""
