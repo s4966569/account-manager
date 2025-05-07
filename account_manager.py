@@ -66,7 +66,7 @@ class AccountManager:
         self.update_ban_status()
     
     def update_ban_status(self):
-        """检查并更新账号的封禁状态"""
+        """检查并更新账号的封禁状态，返回是否有更新"""
         current_time = datetime.datetime.now()
         status_updated = False
         
@@ -86,6 +86,8 @@ class AccountManager:
         # 如果有状态更新，保存到文件
         if status_updated:
             self.save_accounts()
+            
+        return status_updated
     
     def save_accounts(self):
         """保存账号数据到文件"""
@@ -109,6 +111,11 @@ class AccountManager:
         # 创建Frame - 增加宽度从600到800
         self.list_frame = ttk.LabelFrame(self.root, text="账号列表")
         self.list_frame.place(x=10, y=10, width=800, height=580)
+        
+        # 添加刷新按钮
+        refresh_frame = ttk.Frame(self.list_frame)
+        refresh_frame.pack(side="top", fill="x", padx=5, pady=5)
+        ttk.Button(refresh_frame, text="刷新状态", command=self.refresh_ban_status).pack(side="right")
         
         # 创建Treeview - 添加id列在手机号后面
         columns = ("name", "fpp_rank", "tpp_rank", "status", "unban_time", "phone", "id", "note")
@@ -147,6 +154,23 @@ class AccountManager:
         
         # 绑定单击事件以选择账号
         self.tree.bind("<<TreeviewSelect>>", self.on_account_selected)
+    
+    def refresh_ban_status(self):
+        """刷新封禁状态并更新界面"""
+        # 调用更新封禁状态方法
+        updated = self.update_ban_status()
+        
+        # 更新界面
+        self.update_treeview()
+        
+        # 显示状态信息
+        if updated:
+            self.status_message.set("已更新账号状态，部分账号的封禁状态已改变")
+        else:
+            self.status_message.set("已刷新账号状态，无账号状态变化")
+            
+        # 3秒后清空状态栏
+        self.root.after(3000, lambda: self.status_message.set(""))
     
     def create_account_form(self):
         """创建账号表单"""
