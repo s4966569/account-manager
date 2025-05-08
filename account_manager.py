@@ -213,12 +213,12 @@ class AccountManager:
         # TPP段位
         ttk.Label(form_frame, text="TPP段位:").grid(row=2, column=0, padx=10, pady=10, sticky="w")
         self.tpp_rank_var = tk.StringVar()
-        ttk.Combobox(form_frame, textvariable=self.tpp_rank_var, values=self.rank_options, width=27).grid(row=2, column=1, padx=10, pady=10)
+        ttk.Combobox(form_frame, textvariable=self.tpp_rank_var, values=self.rank_options, width=27, state="readonly").grid(row=2, column=1, padx=10, pady=10)
         
         # FPP段位
         ttk.Label(form_frame, text="FPP段位:").grid(row=3, column=0, padx=10, pady=10, sticky="w")
         self.fpp_rank_var = tk.StringVar()
-        ttk.Combobox(form_frame, textvariable=self.fpp_rank_var, values=self.rank_options, width=27).grid(row=3, column=1, padx=10, pady=10)
+        ttk.Combobox(form_frame, textvariable=self.fpp_rank_var, values=self.rank_options, width=27, state="readonly").grid(row=3, column=1, padx=10, pady=10)
         
         # 手机号
         ttk.Label(form_frame, text="手机号:").grid(row=4, column=0, padx=10, pady=10, sticky="w")
