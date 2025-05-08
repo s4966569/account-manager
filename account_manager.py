@@ -443,7 +443,7 @@ class AccountManager:
     
     def save_account(self):
         """保存账号信息"""
-        name = self.name_var.get().strip()
+        name = str(self.name_var.get()).strip()
         
         if not name:
             messagebox.showwarning("警告", "账号名称不能为空")
@@ -490,7 +490,23 @@ class AccountManager:
             messagebox.showwarning("警告", "请先选择要删除的账号")
             return
         
-        if messagebox.askyesno("确认", "确定要删除该账号吗？"):
+        # 获取当前选中的树形视图项
+        selection = self.tree.selection()
+        if not selection:
+            messagebox.showwarning("警告", "请先选择要删除的账号")
+            return
+        
+        # 获取选中项的名称
+        item = self.tree.item(selection[0])
+        values = item["values"]
+        selected_name = str(values[0])
+        
+        # 再次确认current_account_id指向的是正确的账号
+        if str(self.accounts[self.current_account_id]["name"]) != selected_name:
+            messagebox.showerror("错误", "账号选择不匹配，请重新选择要删除的账号")
+            return
+        
+        if messagebox.askyesno("确认", f"确定要删除账号 '{selected_name}' 吗？"):
             del self.accounts[self.current_account_id]
             self.save_accounts()
             self.update_treeview()
@@ -577,14 +593,14 @@ class AccountManager:
                     unban_time_display = account["unban_time"]
             
             self.tree.insert("", "end", values=(
-                account["name"],
-                account["fpp_rank"],
-                account["tpp_rank"],
+                str(account["name"]),
+                str(account["fpp_rank"]),
+                str(account["tpp_rank"]),
                 status,
                 unban_time_display,
-                account["phone"],
-                account_id,
-                note
+                str(account["phone"]),
+                str(account_id),
+                str(note)
             ))
     
     def on_account_selected(self, event):
@@ -595,11 +611,11 @@ class AccountManager:
         
         item = self.tree.item(selection[0])
         values = item["values"]
-        selected_name = values[0]
+        selected_name = str(values[0])  # 确保selected_name是字符串类型
         
         # 查找对应的账号
         for i, account in enumerate(self.accounts):
-            if account["name"] == selected_name:
+            if str(account["name"]) == selected_name:  # 确保比较时两边都是字符串
                 self.current_account_id = i
                 self.name_var.set(account["name"])
                 self.password_var.set(account["password"])
