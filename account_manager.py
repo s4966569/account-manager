@@ -149,7 +149,7 @@ class AccountManager:
         self.tree.heading("tpp_rank", text="TPP段位", command=lambda: self.force_sort("tpp_rank"))
         self.tree.heading("status", text="状态", command=lambda: self.force_sort("status"))
         self.tree.heading("unban_time", text="解封时间", command=lambda: self.force_sort("unban_time"))
-        self.tree.heading("phone", text="ARS")
+        self.tree.heading("phone", text="ARS", command=lambda: self.force_sort("phone"))
         self.tree.heading("id", text="ID")
         self.tree.heading("note", text="备注")
         
@@ -546,6 +546,12 @@ class AccountManager:
                     key=lambda x: x["status"],
                     reverse=self.sort_reverse
                 )
+            elif self.sort_column == "phone":
+                # 按ARS(手机号)排序
+                sorted_accounts.sort(
+                    key=lambda x: str(x.get("phone", "")),
+                    reverse=self.sort_reverse
+                )
             elif self.sort_column == "unban_time":
                 # 按解封时间排序
                 def unban_time_key(account):
@@ -683,7 +689,8 @@ class AccountManager:
             "tpp_rank": "TPP段位",
             "fpp_rank": "FPP段位",
             "status": "状态",
-            "unban_time": "解封时间"
+            "unban_time": "解封时间",
+            "phone": "ARS"
         }.get(column, column)
         self.status_message.set(f"已按{column_name}进行{direction}排序")
         
@@ -720,7 +727,8 @@ class AccountManager:
             "tpp_rank": "TPP段位",
             "fpp_rank": "FPP段位",
             "status": "状态",
-            "unban_time": "解封时间"
+            "unban_time": "解封时间",
+            "phone": "ARS"
         }.get(column, column)
         direction = "降序" if self.sort_reverse else "升序"
         self.status_message.set(f"已按{column_name}进行{direction}排序")
