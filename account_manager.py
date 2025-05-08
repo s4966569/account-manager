@@ -139,7 +139,7 @@ class AccountManager:
         self.list_frame = ttk.LabelFrame(self.root, text="账号列表")
         self.list_frame.place(x=10, y=10, width=800, height=580)
         
-        # 创建Treeview - 添加id列在手机号后面
+        # 创建Treeview - 添加id列在ARS后面
         columns = ("name", "fpp_rank", "tpp_rank", "status", "unban_time", "phone", "id", "note")
         self.tree = ttk.Treeview(self.list_frame, columns=columns, show="headings", selectmode="browse")
         
@@ -149,7 +149,7 @@ class AccountManager:
         self.tree.heading("tpp_rank", text="TPP段位", command=lambda: self.force_sort("tpp_rank"))
         self.tree.heading("status", text="状态", command=lambda: self.force_sort("status"))
         self.tree.heading("unban_time", text="解封时间", command=lambda: self.force_sort("unban_time"))
-        self.tree.heading("phone", text="手机号")
+        self.tree.heading("phone", text="ARS")
         self.tree.heading("id", text="ID")
         self.tree.heading("note", text="备注")
         
@@ -221,7 +221,7 @@ class AccountManager:
         ttk.Combobox(form_frame, textvariable=self.fpp_rank_var, values=self.rank_options, width=27, state="readonly").grid(row=3, column=1, padx=10, pady=10)
         
         # 手机号
-        ttk.Label(form_frame, text="手机号:").grid(row=4, column=0, padx=10, pady=10, sticky="w")
+        ttk.Label(form_frame, text="ARS:").grid(row=4, column=0, padx=10, pady=10, sticky="w")
         self.phone_var = tk.StringVar()
         ttk.Entry(form_frame, textvariable=self.phone_var, width=30).grid(row=4, column=1, padx=10, pady=10)
         
@@ -307,7 +307,7 @@ class AccountManager:
         # 获取列名
         column_name = self.tree["columns"][column_index]
         
-        # 只允许特定列可复制：账号名称、手机号、ID
+        # 只允许特定列可复制：账号名称、ARS、ID
         allowed_columns = ["name", "phone", "id"]
         if column_name not in allowed_columns:
             return
