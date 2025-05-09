@@ -42,7 +42,7 @@ class AccountManager:
         self.rank_map = {rank: i for i, rank in enumerate(self.rank_options)}
         
         # 封禁时长选项 - 添加"无"选项和"自定义"选项
-        self.ban_duration_options = ["无", "24小时", "72小时", "7天", "15天", "30天", "自定义"]
+        self.ban_duration_options = ["无", "24小时", "72小时", "7天", "15天", "30天", "追3天", "自定义"]
         
         # 用于记住上次选择的非"无"封禁时长
         self.last_duration = "24小时"
@@ -278,13 +278,27 @@ class AccountManager:
         # 添加跟踪变量变化的回调
         self.ban_duration_var.trace_add("write", self.on_duration_changed)
         
+        # 存储RadioButton引用，方便后续控制
+        self.duration_radios = {}
+        
         # 第一行放4个选项
         for i, duration in enumerate(self.ban_duration_options[:4]):
-            ttk.Radiobutton(ban_row1, text=duration, variable=self.ban_duration_var, value=duration).pack(side="left", padx=5)
+            radio = ttk.Radiobutton(ban_row1, text=duration, variable=self.ban_duration_var, value=duration)
+            radio.pack(side="left", padx=5)
+            self.duration_radios[duration] = radio
         
-        # 第二行放3个选项
+        # 第二行放4个选项
         for duration in self.ban_duration_options[4:]:
-            ttk.Radiobutton(ban_row2, text=duration, variable=self.ban_duration_var, value=duration).pack(side="left", padx=5)
+            radio = ttk.Radiobutton(ban_row2, text=duration, variable=self.ban_duration_var, value=duration)
+            radio.pack(side="left", padx=5)
+            self.duration_radios[duration] = radio
+            
+        # 初始化时禁用"追3天"选项
+        self.duration_radios["追3天"].configure(state="disabled")
+        
+        # 添加监听器，使status_var和unban_time_var变化时更新"追3天"按钮状态
+        self.status_var.trace_add("write", self.update_extend_button_state)
+        self.unban_time_var.trace_add("write", self.update_extend_button_state)
         
         # 备注 - 改为3行高的文本框
         ttk.Label(form_frame, text="备注:").grid(row=9, column=0, padx=10, pady=10, sticky="nw")
@@ -395,6 +409,9 @@ class AccountManager:
         except:
             # 日期格式无效或其他错误，设为自定义
             self.ban_duration_var.set("自定义")
+            
+        # 更新"追3天"按钮状态
+        self.update_extend_button_state()
     
     def on_status_changed(self, *args):
         """当封禁状态变化时触发"""
@@ -408,6 +425,9 @@ class AccountManager:
             self.ban_duration_var.set("无")
             # 清空解封时间
             self.unban_time_var.set("")
+        
+        # 更新"追3天"按钮状态
+        self.update_extend_button_state()
     
     def on_duration_changed(self, *args):
         """当封禁时长变化时触发"""
@@ -418,6 +438,54 @@ class AccountManager:
             self.status_var.set(False)
             # 清空解封时间
             self.unban_time_var.set("")
+        elif duration == "追3天":
+            # 选择"追3天"时，处理追加封禁
+            self.status_var.set(True)  # 确保设为封禁状态
+            
+            # 获取当前解封时间
+            current_unban_time_str = self.unban_time_var.get()
+            now = datetime.datetime.now()
+            
+            if current_unban_time_str:
+                try:
+                    # 尝试解析当前解封时间
+                    current_unban_time = datetime.datetime.strptime(current_unban_time_str, "%Y-%m-%d %H:%M:%S")
+                    
+                    # 计算与当前时间的差值（小时）
+                    hours_from_now = (current_unban_time - now).total_seconds() / 3600
+                    
+                    if hours_from_now <= 0:
+                        # 已过期，从当前时间开始计算3天
+                        new_unban_time = now + datetime.timedelta(days=3)
+                    else:
+                        # 计算还需要追加的小时数，使总时长达到3天
+                        hours_in_three_days = 72  # 3天=72小时
+                        if hours_from_now < hours_in_three_days:
+                            # 未满3天，追加时间
+                            additional_hours = hours_in_three_days - hours_from_now
+                            new_unban_time = current_unban_time + datetime.timedelta(hours=additional_hours)
+                        else:
+                            # 已经超过3天，不变
+                            new_unban_time = current_unban_time
+                            
+                    # 设置新的解封时间
+                    self.unban_time_var.set(new_unban_time.strftime("%Y-%m-%d %H:%M:%S"))
+                    
+                    # 操作完成后，自动将选项设为"72小时"
+                    self.root.after(100, lambda: self.ban_duration_var.set("72小时"))
+                    
+                except Exception as e:
+                    # 解析失败，从当前时间开始计算3天
+                    new_unban_time = now + datetime.timedelta(days=3)
+                    self.unban_time_var.set(new_unban_time.strftime("%Y-%m-%d %H:%M:%S"))
+                    # 操作完成后，自动将选项设为"72小时"
+                    self.root.after(100, lambda: self.ban_duration_var.set("72小时"))
+            else:
+                # 没有当前解封时间，从当前时间开始计算3天
+                new_unban_time = now + datetime.timedelta(days=3)
+                self.unban_time_var.set(new_unban_time.strftime("%Y-%m-%d %H:%M:%S"))
+                # 操作完成后，自动将选项设为"72小时"
+                self.root.after(100, lambda: self.ban_duration_var.set("72小时"))
         elif duration == "自定义":
             # 选择"自定义"时，状态设为封禁，但不修改解封时间
             self.status_var.set(True)
@@ -455,6 +523,9 @@ class AccountManager:
         
         # 设置解封时间
         self.unban_time_var.set(unban_time.strftime("%Y-%m-%d %H:%M:%S"))
+        
+        # 更新"追3天"按钮状态
+        self.update_extend_button_state()
     
     def save_account(self):
         """保存账号信息"""
@@ -695,6 +766,9 @@ class AccountManager:
                     self.ban_duration_var.set("24小时")
                 
                 break
+                
+        # 更新"追3天"按钮状态
+        self.update_extend_button_state()
     
     def treeview_sort_column(self, column):
         """对treeview的列进行排序"""
@@ -932,6 +1006,44 @@ class AccountManager:
             return True
         except Exception:
             return False
+
+    def update_extend_button_state(self, *args):
+        """更新"追3天"按钮的可用状态"""
+        try:
+            # 判断当前是否为封禁状态
+            is_banned = self.status_var.get()
+            
+            # 获取当前解封时间
+            unban_time_str = self.unban_time_var.get()
+            
+            # 默认禁用
+            enable_extend = False
+            
+            if is_banned and unban_time_str:
+                try:
+                    # 计算当前封禁的时长
+                    unban_time = datetime.datetime.strptime(unban_time_str, "%Y-%m-%d %H:%M:%S")
+                    now = datetime.datetime.now()
+                    hours_diff = (unban_time - now).total_seconds() / 3600
+                    
+                    # 只有在封禁时长接近24小时(允许1小时误差)时才启用
+                    if abs(hours_diff - 24) < 1:
+                        enable_extend = True
+                except:
+                    pass
+            
+            # 更新按钮状态
+            if enable_extend:
+                self.duration_radios["追3天"].configure(state="normal")
+            else:
+                self.duration_radios["追3天"].configure(state="disabled")
+        except Exception as e:
+            print(f"更新追3天按钮状态出错: {str(e)}")
+            # 出错时禁用按钮
+            try:
+                self.duration_radios["追3天"].configure(state="disabled")
+            except:
+                pass
 
 if __name__ == "__main__":
     root = tk.Tk()
