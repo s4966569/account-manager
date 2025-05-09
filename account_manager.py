@@ -9,7 +9,7 @@ class AccountManager:
     def __init__(self, root):
         self.root = root
         self.root.title("账号管理器")
-        self.root.geometry("1200x600")
+        self.root.geometry("1300x600")
         self.root.resizable(True, True)
         
         # 数据文件路径 - 完全修改这部分
@@ -144,16 +144,17 @@ class AccountManager:
         """创建账号列表"""
         # 创建Frame - 增加宽度从600到800
         self.list_frame = ttk.LabelFrame(self.root, text="账号列表")
-        self.list_frame.place(x=10, y=10, width=800, height=580)
+        self.list_frame.place(x=10, y=10, width=900, height=580)
         
         # 创建Treeview - 添加id列在ARS后面
-        columns = ("name", "note", "fpp_rank", "tpp_rank", "status", "unban_time", "phone", "id")
+        columns = ("number", "name", "note", "fpp_rank", "tpp_rank", "status", "unban_time", "phone", "id")
         self.tree = ttk.Treeview(self.list_frame, columns=columns, show="headings", selectmode="browse")
         
         # 配置高亮样式
         self.tree.tag_configure('highlight', background='#ECECEC')
         
         # 设置列标题，重新添加排序功能
+        self.tree.heading("number", text="序号")
         self.tree.heading("name", text="账号名称")
         self.tree.heading("note", text="备注")  # 移除点击排序命令
         self.tree.heading("fpp_rank", text="FPP段位", command=lambda: self.force_sort("fpp_rank"))
@@ -164,6 +165,7 @@ class AccountManager:
         self.tree.heading("id", text="ID")
         
         # 调整列宽以适应表格总宽度
+        self.tree.column("number", width=40)  # 序号列窄一些
         self.tree.column("name", width=100)
         self.tree.column("note", width=150)  # 备注列现在在第二位
         self.tree.column("fpp_rank", width=80)
@@ -213,7 +215,7 @@ class AccountManager:
         """创建账号表单"""
         # 创建Frame - 右移表单
         form_frame = ttk.LabelFrame(self.root, text="账号详情")
-        form_frame.place(x=820, y=10, width=370, height=580)
+        form_frame.place(x=920, y=10, width=370, height=580)
         
         # 账号名称
         ttk.Label(form_frame, text="账号名称:").grid(row=0, column=0, padx=10, pady=10, sticky="w")
@@ -336,7 +338,7 @@ class AccountManager:
         # 获取列名
         column_name = self.tree["columns"][column_index]
         
-        # 只允许特定列可复制：账号名称、备注、ARS、ID
+        # 只允许特定列可复制：账号名称、ARS、ID
         allowed_columns = ["name", "phone", "id"]
         if column_name not in allowed_columns:
             return
@@ -592,7 +594,7 @@ class AccountManager:
         # 获取选中项的名称
         item = self.tree.item(selection[0])
         values = item["values"]
-        selected_name = str(values[0])
+        selected_name = str(values[1])
         
         # 再次确认current_account_id指向的是正确的账号
         if str(self.accounts[self.current_account_id]["name"]) != selected_name:
@@ -678,7 +680,7 @@ class AccountManager:
         #     )
         
         # 添加账号数据，包括ID列
-        for account in sorted_accounts:
+        for i, account in enumerate(sorted_accounts):
             status = "❌" if account["status"] else "✅"
             # 确保账号对象有备注字段和ID字段
             note = account.get("note", "")
@@ -695,6 +697,7 @@ class AccountManager:
             
             # 插入数据的顺序需要与列顺序一致
             self.tree.insert("", "end", values=(
+                i + 1,  # 序号从1开始
                 str(account["name"]),
                 str(note),
                 str(account["fpp_rank"]),
@@ -713,7 +716,7 @@ class AccountManager:
         
         item = self.tree.item(selection[0])
         values = item["values"]
-        selected_name = str(values[0])  # 确保selected_name是字符串类型
+        selected_name = str(values[1])  # 确保selected_name是字符串类型
         
         # 查找对应的账号
         for i, account in enumerate(self.accounts):
@@ -870,7 +873,7 @@ class AccountManager:
         if not values:
             return
             
-        selected_name = str(values[0])
+        selected_name = str(values[1])
         for i, account in enumerate(self.accounts):
             if str(account["name"]) == selected_name:
                 self.drag_source_index = i
@@ -939,7 +942,7 @@ class AccountManager:
                 self.drag_source_index = None
                 return
                 
-            target_name = str(values[0])
+            target_name = str(values[1])
             target_index = None
             for i, account in enumerate(self.accounts):
                 if str(account["name"]) == target_name:
