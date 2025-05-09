@@ -142,28 +142,28 @@ class AccountManager:
         self.list_frame.place(x=10, y=10, width=800, height=580)
         
         # 创建Treeview - 添加id列在ARS后面
-        columns = ("name", "fpp_rank", "tpp_rank", "status", "unban_time", "phone", "id", "note")
+        columns = ("name", "note", "fpp_rank", "tpp_rank", "status", "unban_time", "phone", "id")
         self.tree = ttk.Treeview(self.list_frame, columns=columns, show="headings", selectmode="browse")
         
         # 设置列标题，重新添加排序功能
         self.tree.heading("name", text="账号名称")
+        self.tree.heading("note", text="备注")  # 移除点击排序命令
         self.tree.heading("fpp_rank", text="FPP段位", command=lambda: self.force_sort("fpp_rank"))
         self.tree.heading("tpp_rank", text="TPP段位", command=lambda: self.force_sort("tpp_rank"))
         self.tree.heading("status", text="状态", command=lambda: self.force_sort("status"))
         self.tree.heading("unban_time", text="解封时间", command=lambda: self.force_sort("unban_time"))
         self.tree.heading("phone", text="ARS", command=lambda: self.force_sort("phone"))
         self.tree.heading("id", text="ID")
-        self.tree.heading("note", text="备注")
         
         # 调整列宽以适应表格总宽度
         self.tree.column("name", width=100)
+        self.tree.column("note", width=150)  # 备注列现在在第二位
         self.tree.column("fpp_rank", width=80)
         self.tree.column("tpp_rank", width=80)
         self.tree.column("status", width=60)
         self.tree.column("unban_time", width=150)
         self.tree.column("phone", width=100)
         self.tree.column("id", width=80)  # ID列宽
-        self.tree.column("note", width=150)
         
         # 添加滚动条
         scrollbar = ttk.Scrollbar(self.list_frame, orient="vertical", command=self.tree.yview)
@@ -309,7 +309,7 @@ class AccountManager:
         # 获取列名
         column_name = self.tree["columns"][column_index]
         
-        # 只允许特定列可复制：账号名称、ARS、ID
+        # 只允许特定列可复制：账号名称、备注、ARS、ID
         allowed_columns = ["name", "phone", "id"]
         if column_name not in allowed_columns:
             return
@@ -601,15 +601,16 @@ class AccountManager:
                 except:
                     unban_time_display = account["unban_time"]
             
+            # 插入数据的顺序需要与列顺序一致
             self.tree.insert("", "end", values=(
                 str(account["name"]),
+                str(note),
                 str(account["fpp_rank"]),
                 str(account["tpp_rank"]),
                 status,
                 unban_time_display,
                 str(account["phone"]),
-                str(account_id),
-                str(note)
+                str(account_id)
             ))
     
     def on_account_selected(self, event):
@@ -693,7 +694,8 @@ class AccountManager:
             "fpp_rank": "FPP段位",
             "status": "状态",
             "unban_time": "解封时间",
-            "phone": "ARS"
+            "phone": "ARS",
+            "note": "备注"
         }.get(column, column)
         self.status_message.set(f"已按{column_name}进行{direction}排序")
         
@@ -731,7 +733,8 @@ class AccountManager:
             "fpp_rank": "FPP段位",
             "status": "状态",
             "unban_time": "解封时间",
-            "phone": "ARS"
+            "phone": "ARS",
+            "note": "备注"
         }.get(column, column)
         direction = "降序" if self.sort_reverse else "升序"
         self.status_message.set(f"已按{column_name}进行{direction}排序")
