@@ -54,6 +54,11 @@ class AccountManager:
         # 统计信息变量
         self.stats_var = tk.StringVar(value="账号列表")
         
+        # 拖放功能相关变量
+        self.drag_item = None
+        self.drag_source_index = None
+        self.custom_order = {}  # 用于保存用户自定义的顺序
+        
         # 加载账号数据
         self.load_accounts()
         
@@ -145,6 +150,9 @@ class AccountManager:
         columns = ("name", "note", "fpp_rank", "tpp_rank", "status", "unban_time", "phone", "id")
         self.tree = ttk.Treeview(self.list_frame, columns=columns, show="headings", selectmode="browse")
         
+        # 配置高亮样式
+        self.tree.tag_configure('highlight', background='#ECECEC')
+        
         # 设置列标题，重新添加排序功能
         self.tree.heading("name", text="账号名称")
         self.tree.heading("note", text="备注")  # 移除点击排序命令
@@ -178,6 +186,11 @@ class AccountManager:
         
         # 绑定单击事件以选择账号
         self.tree.bind("<<TreeviewSelect>>", self.on_account_selected)
+        
+        # 绑定拖放相关事件
+        self.tree.bind("<ButtonPress-1>", self.on_drag_start)
+        self.tree.bind("<B1-Motion>", self.on_drag_motion)
+        self.tree.bind("<ButtonRelease-1>", self.on_drag_release)
     
     def refresh_ban_status(self):
         """刷新封禁状态并更新界面"""
@@ -475,7 +488,14 @@ class AccountManager:
             self.accounts[self.current_account_id] = account
         else:
             # 添加新账号
-            self.accounts.append(account)
+            # 如果未排序状态，新账号添加到列表顶部
+            if not self.sort_column:
+                self.accounts.insert(0, account)
+                # 更新自定义顺序
+                self.save_custom_order()
+            else:
+                # 处于排序状态，直接添加到列表末尾，排序会在update_treeview中进行
+                self.accounts.append(account)
         
         # 保存到文件
         self.save_accounts()
@@ -536,6 +556,7 @@ class AccountManager:
         all_unbanned = all(not account["status"] for account in sorted_accounts)
         
         if self.sort_column:
+            # 如果有排序列，则根据排序列排序
             if self.sort_column == "tpp_rank" or self.sort_column == "fpp_rank":
                 # 按段位排序（使用预设的段位序列）
                 sorted_accounts.sort(
@@ -754,6 +775,163 @@ class AccountManager:
             
         direction_mark = " ▼" if self.sort_reverse else " ▲"
         self.tree.heading(self.sort_column, text=current_text + direction_mark)
+
+    def on_drag_start(self, event):
+        """开始拖动行"""
+        # 获取点击的区域和项目
+        region = self.tree.identify_region(event.x, event.y)
+        if region != "cell" and region != "text":
+            return
+            
+        # 获取点击的行
+        item = self.tree.identify_row(event.y)
+        if not item:
+            return
+            
+        # 记录拖动的项目
+        self.drag_item = item
+        
+        # 找到该项目在原始数据中的索引
+        values = self.tree.item(item, "values")
+        if not values:
+            return
+            
+        selected_name = str(values[0])
+        for i, account in enumerate(self.accounts):
+            if str(account["name"]) == selected_name:
+                self.drag_source_index = i
+                break
+                
+        # 设置视觉反馈 - 直接修改鼠标样式
+        self.tree.config(cursor="hand2")
+    
+    def on_drag_motion(self, event):
+        """拖动行时的处理"""
+        if not self.drag_item or self.drag_source_index is None:
+            return
+            
+        # 获取当前鼠标下方的行
+        target_item = self.tree.identify_row(event.y)
+        if not target_item or target_item == self.drag_item:
+            return
+        
+        # 保持鼠标样式为拖动样式
+        self.tree.config(cursor="hand2")
+        
+        # 尝试高亮目标行
+        try:
+            # 移除所有高亮
+            for item in self.tree.get_children():
+                self.tree.item(item, tags=())
+                
+            # 高亮目标行
+            if target_item and target_item != self.drag_item:
+                self.tree.item(target_item, tags=('highlight',))
+                
+            # 确保tag配置存在
+            if not self.tag_exists('highlight'):
+                self.tree.tag_configure('highlight', background='#ECECEC')
+        except Exception as e:
+            # 忽略高亮过程中的错误，保持基本拖动功能
+            print(f"高亮错误: {str(e)}")
+    
+    def on_drag_release(self, event):
+        """释放鼠标完成拖动"""
+        # 恢复正常鼠标样式
+        self.tree.config(cursor="")
+        
+        # 清除所有高亮
+        try:
+            for item in self.tree.get_children():
+                self.tree.item(item, tags=())
+        except:
+            pass
+        
+        if not self.drag_item or self.drag_source_index is None:
+            return
+            
+        # 获取释放时鼠标下方的行
+        target_item = self.tree.identify_row(event.y)
+        if not target_item or target_item == self.drag_item:
+            self.drag_item = None
+            self.drag_source_index = None
+            return
+            
+        # 获取目标行的索引
+        try:
+            values = self.tree.item(target_item, "values")
+            if not values:
+                self.drag_item = None
+                self.drag_source_index = None
+                return
+                
+            target_name = str(values[0])
+            target_index = None
+            for i, account in enumerate(self.accounts):
+                if str(account["name"]) == target_name:
+                    target_index = i
+                    break
+                    
+            if target_index is None:
+                self.drag_item = None
+                self.drag_source_index = None
+                return
+                
+            # 调整账号顺序
+            account = self.accounts.pop(self.drag_source_index)
+            self.accounts.insert(target_index, account)
+            
+            # 清除任何已有的排序状态
+            if self.sort_column:
+                # 清除排序列上的标记
+                current_text = self.tree.heading(self.sort_column, option="text")
+                if current_text.endswith(" ▲") or current_text.endswith(" ▼"):
+                    clean_text = current_text[:-2]
+                    self.tree.heading(self.sort_column, text=clean_text)
+                    
+                # 重置排序状态
+                old_sort_column = self.sort_column
+                self.sort_column = None
+                self.sort_reverse = False
+                
+                # 额外的状态提示
+                self.status_message.set(f"手动排序模式已启用，'{old_sort_column}'列排序已取消")
+                self.root.after(3000, lambda: self.status_message.set(""))
+            
+            # 保存自定义顺序
+            self.save_custom_order()
+            
+            # 重新加载表格
+            self.update_treeview()
+            
+            # 显示状态信息
+            self.status_message.set(f"已调整账号 '{account['name']}' 的位置")
+            self.root.after(3000, lambda: self.status_message.set(""))
+        except Exception as e:
+            print(f"拖动处理错误: {str(e)}")
+            
+        # 重置拖放状态
+        self.drag_item = None
+        self.drag_source_index = None
+    
+    def save_custom_order(self):
+        """保存用户自定义的顺序"""
+        # 保存每个账号的新序号
+        for i, account in enumerate(self.accounts):
+            account_name = str(account["name"])
+            self.custom_order[account_name] = i
+        
+        # 保存到文件
+        self.save_accounts()
+
+    def tag_exists(self, tag_name):
+        """检查tag是否已在树视图中配置"""
+        try:
+            # 尝试获取tag配置，如果不存在会抛出异常
+            self.tree.tag_configure(tag_name)
+            return True
+        except Exception:
+            return False
 
 if __name__ == "__main__":
     root = tk.Tk()
