@@ -22,9 +22,12 @@ class AccountManager:
         
         print(f"数据文件位置: {self.data_file}")  # 添加调试信息
         
+        # 先初始化状态变量，防止加载账号时出错
+        self.status_var = tk.StringVar()
+        self.status_message = tk.StringVar()
+        
         # 账号数据
         self.accounts = []
-        self.load_accounts()
         
         # 段位选项
         self.rank_options = ["未定级", 
@@ -44,22 +47,21 @@ class AccountManager:
         # 用于记住上次选择的非"无"封禁时长
         self.last_duration = "24小时"
         
-        # 创建状态栏
-        self.status_var = tk.StringVar()
-        self.status_message = tk.StringVar()
-        
         # 排序相关变量
-        self.sort_column = "unban_time"  # 默认排序列为解封时间
+        self.sort_column = None  # 默认不排序
         self.sort_reverse = False  # 默认升序排列
         
         # 统计信息变量
         self.stats_var = tk.StringVar(value="账号列表")
         
+        # 加载账号数据
+        self.load_accounts()
+        
         self.create_widgets()
         self.update_treeview()
         
-        # 初始排序时添加排序标记
-        self.update_sort_indicator()
+        # 初始不添加排序标记
+        # self.update_sort_indicator()
     
     def load_accounts(self):
         """从文件加载账号数据"""
@@ -575,12 +577,13 @@ class AccountManager:
                     key=unban_time_key,
                     reverse=self.sort_reverse
                 )
-        # 默认排序：如果没有指定排序列且所有账号都是未封禁状态，则按TPP段位排序
-        elif all_unbanned:
-            sorted_accounts.sort(
-                key=lambda x: self.rank_map.get(x["tpp_rank"], 0),
-                reverse=False  # 默认从低到高
-            )
+        # 默认不进行排序，保持账号添加的顺序
+        # 移除默认按TPP段位排序的代码
+        # elif all_unbanned:
+        #     sorted_accounts.sort(
+        #         key=lambda x: self.rank_map.get(x["tpp_rank"], 0),
+        #         reverse=False  # 默认从低到高
+        #     )
         
         # 添加账号数据，包括ID列
         for account in sorted_accounts:
