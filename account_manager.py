@@ -4,12 +4,14 @@ import datetime
 import json
 import os
 import sys
+import requests  # 导入requests库用于网络请求
+import time  # 用于添加请求延迟
 
 class AccountManager:
     def __init__(self, root):
         self.root = root
         self.root.title("账号管理器")
-        self.root.geometry("1300x600")
+        self.root.geometry("1400x710")  # 修改窗口高度为710
         self.root.resizable(True, True)
         
         # 数据文件路径 - 完全修改这部分
@@ -67,6 +69,9 @@ class AccountManager:
         
         # 初始不添加排序标记
         # self.update_sort_indicator()
+        
+        # 启动时打印信息
+        print("程序启动完成，准备就绪。")
     
     def load_accounts(self):
         """从文件加载账号数据"""
@@ -80,23 +85,139 @@ class AccountManager:
         # 启动时检查并更新封禁状态
         self.update_ban_status()
     
+    def check_extended_ban(self, account):
+        """
+        检查账号是否被延长封禁
+        account: 账号对象
+        返回: 是否有更新
+        """
+        # 如果账号没有ID，不进行检查
+        if not account.get("id"):
+            return False
+            
+        # 查询网络接口
+        is_banned, success = self.check_ban_status_online(account["id"])
+        
+        # 如果查询失败，不进行任何更新
+        if not success:
+            return False
+            
+        # 如果查询成功且账号当前状态与API状态不一致
+        if account["status"] != is_banned:
+            if is_banned:  # API显示已封禁，但本地状态是未封禁
+                # 更新为封禁状态
+                account["status"] = True
+                
+                # 检查当前是否有解封时间记录
+                if not account.get("unban_time") or not account["unban_time"]:
+                    # 没有解封时间记录，设置为24小时封禁
+                    account["extended_ban"] = ""  # 不是追封，是新封禁
+                    now = datetime.datetime.now()
+                    unban_time = now + datetime.timedelta(hours=24)
+                    account["unban_time"] = unban_time.strftime("%Y-%m-%d %H:%M:%S")
+                    print(f"账号 {account['name']} 被检测到封禁，已设置为封禁24小时")
+                else:
+                    # 有解封时间记录，视为追封
+                    try:
+                        # 尝试解析当前解封时间
+                        current_unban_time = datetime.datetime.strptime(account["unban_time"], "%Y-%m-%d %H:%M:%S")
+                        # 检查解封时间是否已过期
+                        now = datetime.datetime.now()
+                        
+                        # 解封时间未过期，在原解封时间基础上+2天
+                        account["extended_ban"] = "追3天"
+                        new_unban_time = current_unban_time + datetime.timedelta(days=2)
+                        account["unban_time"] = new_unban_time.strftime("%Y-%m-%d %H:%M:%S")
+                        print(f"账号 {account['name']} 被检测到追封，已延长封禁时间2天")
+                    except:
+                        # 解析失败，从当前时间开始计算24小时
+                        account["extended_ban"] = ""  # 解析失败不作为追封
+                        now = datetime.datetime.now()
+                        unban_time = now + datetime.timedelta(hours=24)
+                        account["unban_time"] = unban_time.strftime("%Y-%m-%d %H:%M:%S")
+                        print(f"账号 {account['name']} 解封时间格式无效，重置为封禁24小时")
+            else:  # API显示未封禁，但本地状态是封禁
+                # 更新为未封禁状态
+                account["status"] = False
+                account["unban_time"] = ""
+                account["extended_ban"] = ""
+                print(f"账号 {account['name']} 已确认解封")
+                
+            return True  # 状态有更新
+            
+        return False  # 状态未更新
+    
     def update_ban_status(self):
         """检查并更新账号的封禁状态，返回是否有更新"""
+        print("开始执行update_ban_status()，准备检查所有账号状态...")
         current_time = datetime.datetime.now()
         status_updated = False
+        api_calls_count = 0
         
-        for account in self.accounts:
+        for idx, account in enumerate(self.accounts):
+            print(f"正在处理第{idx+1}个账号: {account.get('name', '未命名')}...")
+            # 为每个账号初始化追封字段（如果不存在）
+            if "extended_ban" not in account:
+                account["extended_ban"] = ""
+            
+            # 检查账号状态
             if account["status"] and account["unban_time"]:
+                print(f"账号 {account.get('name', '未命名')} 目前为封禁状态，解封时间: {account['unban_time']}")
                 try:
+                    # 检查解封时间是否已过期
                     unban_time = datetime.datetime.strptime(account["unban_time"], "%Y-%m-%d %H:%M:%S")
-                    # 判断解封时间是否已过期
                     if current_time >= unban_time:
-                        account["status"] = False  # 更新为正常状态
-                        account["unban_time"] = ""  # 清空解封时间
-                        status_updated = True
-                except:
+                        print(f"账号 {account.get('name', '未命名')} 解封时间已过期，需通过API确认真实状态")
+                        # 本地解封时间已过期，但需要通过API确认真实状态
+                        if account.get("id"):
+                            print(f"账号有ID: {account.get('id')}，将通过API检查状态")
+                            # 直接用check_extended_ban检查API状态，统一处理逻辑
+                            temp_account = account.copy()
+                            temp_account["status"] = False  # 临时设为未封禁，以触发API检查
+                            api_calls_count += 1
+                            if self.check_extended_ban(temp_account):
+                                # 从临时账号复制更新后的状态回原账号
+                                account["status"] = temp_account["status"]
+                                account["unban_time"] = temp_account["unban_time"]
+                                account["extended_ban"] = temp_account["extended_ban"]
+                                status_updated = True
+                                print(f"账号 {account.get('name', '未命名')} 状态已更新")
+                            elif not temp_account["status"]:  # API确认未封禁
+                                # 清空解封时间和追封标记
+                                account["status"] = False
+                                account["unban_time"] = ""
+                                account["extended_ban"] = ""
+                                status_updated = True
+                                print(f"账号 {account.get('name', '未命名')} API确认未封禁，已更新状态")
+                        else:
+                            print(f"账号 {account.get('name', '未命名')} 无ID，无法通过API检查，直接清空解封时间")
+                            # 没有ID无法查询，直接清空解封时间和追封标记
+                            account["status"] = False
+                            account["unban_time"] = ""
+                            account["extended_ban"] = ""
+                            status_updated = True
+                except Exception as e:
+                    print(f"处理账号 {account.get('name', '未命名')} 时发生异常: {str(e)}")
                     # 日期格式无效，忽略
                     pass
+            elif not account["status"]:
+                print(f"账号 {account.get('name', '未命名')} 目前为正常状态")
+                # 未封禁的账号，检查是否被封禁
+                if account.get("id"):
+                    print(f"账号有ID: {account.get('id')}，将通过API检查是否被封禁")
+                    api_calls_count += 1
+                    if self.check_extended_ban(account):
+                        status_updated = True
+                        print(f"账号 {account.get('name', '未命名')} 状态已更新")
+                else:
+                    print(f"账号 {account.get('name', '未命名')} 无ID，跳过API检查")
+            
+            # 添加延迟以避免API请求过快
+            if account.get("id"):
+                print(f"添加0.2秒延迟，避免API请求过快")
+                time.sleep(0.2)
+        
+        print(f"所有账号处理完毕，共进行了{api_calls_count}次API调用，状态更新: {status_updated}")
         
         # 如果有状态更新，保存到文件
         if status_updated:
@@ -134,7 +255,8 @@ class AccountManager:
         self.create_account_form()
         
         # 创建刷新按钮
-        ttk.Button(self.root, text="刷新状态", command=self.refresh_ban_status, width=10).place(x=550, y=0)
+        self.refresh_btn = ttk.Button(self.root, text="刷新状态", command=self.refresh_ban_status, width=10)
+        self.refresh_btn.place(x=550, y=0)
         
         # 创建状态栏
         status_bar = ttk.Label(self.root, textvariable=self.status_message, relief=tk.SUNKEN, anchor=tk.W)
@@ -142,12 +264,12 @@ class AccountManager:
     
     def create_account_list(self):
         """创建账号列表"""
-        # 创建Frame - 增加宽度从600到800
+        # 创建Frame - 调整宽度
         self.list_frame = ttk.LabelFrame(self.root, text="账号列表")
-        self.list_frame.place(x=10, y=10, width=900, height=580)
+        self.list_frame.place(x=10, y=10, width=950, height=680)  # 增加高度
         
-        # 创建Treeview - 添加id列在ARS后面
-        columns = ("number", "name", "note", "fpp_rank", "tpp_rank", "status", "unban_time", "phone", "id")
+        # 创建Treeview - 添加extended_ban列在unban_time后面
+        columns = ("number", "name", "note", "fpp_rank", "tpp_rank", "status", "unban_time", "extended_ban", "phone", "id")
         self.tree = ttk.Treeview(self.list_frame, columns=columns, show="headings", selectmode="browse")
         
         # 配置高亮样式
@@ -161,6 +283,7 @@ class AccountManager:
         self.tree.heading("tpp_rank", text="TPP段位", command=lambda: self.force_sort("tpp_rank"))
         self.tree.heading("status", text="状态", command=lambda: self.force_sort("status"))
         self.tree.heading("unban_time", text="解封时间", command=lambda: self.force_sort("unban_time"))
+        self.tree.heading("extended_ban", text="追封")
         self.tree.heading("phone", text="ARS", command=lambda: self.force_sort("phone"))
         self.tree.heading("id", text="ID")
         
@@ -171,7 +294,8 @@ class AccountManager:
         self.tree.column("fpp_rank", width=80)
         self.tree.column("tpp_rank", width=80)
         self.tree.column("status", width=60)
-        self.tree.column("unban_time", width=150)
+        self.tree.column("unban_time", width=135)
+        self.tree.column("extended_ban", width=60)  # 追封列宽
         self.tree.column("phone", width=100)
         self.tree.column("id", width=80)  # ID列宽
         
@@ -194,58 +318,41 @@ class AccountManager:
         self.tree.bind("<B1-Motion>", self.on_drag_motion)
         self.tree.bind("<ButtonRelease-1>", self.on_drag_release)
     
-    def refresh_ban_status(self):
-        """刷新封禁状态并更新界面"""
-        # 调用更新封禁状态方法
-        updated = self.update_ban_status()
-        
-        # 更新界面
-        self.update_treeview()
-        
-        # 显示状态信息
-        if updated:
-            self.status_message.set("已更新账号状态，部分账号的封禁状态已改变")
-        else:
-            self.status_message.set("已刷新账号状态，无账号状态变化")
-            
-        # 3秒后清空状态栏
-        self.root.after(3000, lambda: self.status_message.set(""))
-    
     def create_account_form(self):
         """创建账号表单"""
         # 创建Frame - 右移表单
         form_frame = ttk.LabelFrame(self.root, text="账号详情")
-        form_frame.place(x=920, y=10, width=370, height=580)
+        form_frame.place(x=970, y=10, width=420, height=680)  # 增加高度
         
         # 账号名称
         ttk.Label(form_frame, text="账号名称:").grid(row=0, column=0, padx=10, pady=10, sticky="w")
         self.name_var = tk.StringVar()
-        ttk.Entry(form_frame, textvariable=self.name_var, width=30).grid(row=0, column=1, padx=10, pady=10)
+        ttk.Entry(form_frame, textvariable=self.name_var, width=34).grid(row=0, column=1, padx=10, pady=10)
         
         # 密码
         ttk.Label(form_frame, text="密码:").grid(row=1, column=0, padx=10, pady=10, sticky="w")
         self.password_var = tk.StringVar()
-        ttk.Entry(form_frame, textvariable=self.password_var, width=30).grid(row=1, column=1, padx=10, pady=10)
+        ttk.Entry(form_frame, textvariable=self.password_var, width=34).grid(row=1, column=1, padx=10, pady=10)
         
         # TPP段位
         ttk.Label(form_frame, text="TPP段位:").grid(row=2, column=0, padx=10, pady=10, sticky="w")
         self.tpp_rank_var = tk.StringVar()
-        ttk.Combobox(form_frame, textvariable=self.tpp_rank_var, values=self.rank_options, width=27, state="readonly").grid(row=2, column=1, padx=10, pady=10)
+        ttk.Combobox(form_frame, textvariable=self.tpp_rank_var, values=self.rank_options, width=31, state="readonly").grid(row=2, column=1, padx=10, pady=10)
         
         # FPP段位
         ttk.Label(form_frame, text="FPP段位:").grid(row=3, column=0, padx=10, pady=10, sticky="w")
         self.fpp_rank_var = tk.StringVar()
-        ttk.Combobox(form_frame, textvariable=self.fpp_rank_var, values=self.rank_options, width=27, state="readonly").grid(row=3, column=1, padx=10, pady=10)
+        ttk.Combobox(form_frame, textvariable=self.fpp_rank_var, values=self.rank_options, width=31, state="readonly").grid(row=3, column=1, padx=10, pady=10)
         
         # 手机号
         ttk.Label(form_frame, text="ARS:").grid(row=4, column=0, padx=10, pady=10, sticky="w")
         self.phone_var = tk.StringVar()
-        ttk.Entry(form_frame, textvariable=self.phone_var, width=30).grid(row=4, column=1, padx=10, pady=10)
+        ttk.Entry(form_frame, textvariable=self.phone_var, width=34).grid(row=4, column=1, padx=10, pady=10)
         
         # ID
         ttk.Label(form_frame, text="ID:").grid(row=5, column=0, padx=10, pady=10, sticky="w")
         self.id_var = tk.StringVar()
-        ttk.Entry(form_frame, textvariable=self.id_var, width=30).grid(row=5, column=1, padx=10, pady=10)
+        ttk.Entry(form_frame, textvariable=self.id_var, width=34).grid(row=5, column=1, padx=10, pady=10)
         
         # 当前状态
         ttk.Label(form_frame, text="封禁状态:").grid(row=6, column=0, padx=10, pady=10, sticky="w")
@@ -263,12 +370,17 @@ class AccountManager:
         self.unban_time_var = tk.StringVar()
         # 添加跟踪变量变化的回调，用于检测手动修改
         self.unban_time_var.trace_add("write", self.on_unban_time_changed)
-        ttk.Entry(form_frame, textvariable=self.unban_time_var, width=30).grid(row=7, column=1, padx=10, pady=10)
+        ttk.Entry(form_frame, textvariable=self.unban_time_var, width=34).grid(row=7, column=1, padx=10, pady=10)
+        
+        # 追封状态
+        ttk.Label(form_frame, text="追封状态:").grid(row=8, column=0, padx=10, pady=10, sticky="w")
+        self.extended_ban_var = tk.StringVar()
+        ttk.Entry(form_frame, textvariable=self.extended_ban_var, width=34, state="readonly").grid(row=8, column=1, padx=10, pady=10)
         
         # 标记封禁 - 改为RadioButton横向排列
-        ttk.Label(form_frame, text="封禁时长:").grid(row=8, column=0, padx=10, pady=10, sticky="w")
+        ttk.Label(form_frame, text="封禁时长:").grid(row=9, column=0, padx=10, pady=10, sticky="w")
         ban_frame = ttk.Frame(form_frame)
-        ban_frame.grid(row=8, column=1, padx=10, pady=10, sticky="w")
+        ban_frame.grid(row=9, column=1, padx=10, pady=10, sticky="w")
         
         # 创建两行RadioButton，每行4个
         ban_row1 = ttk.Frame(ban_frame)
@@ -303,13 +415,13 @@ class AccountManager:
         self.unban_time_var.trace_add("write", self.update_extend_button_state)
         
         # 备注 - 改为3行高的文本框
-        ttk.Label(form_frame, text="备注:").grid(row=9, column=0, padx=10, pady=10, sticky="nw")
-        self.note_text = tk.Text(form_frame, width=30, height=3)
-        self.note_text.grid(row=9, column=1, padx=10, pady=10, sticky="w")
+        ttk.Label(form_frame, text="备注:").grid(row=10, column=0, padx=10, pady=10, sticky="nw")
+        self.note_text = tk.Text(form_frame, width=34, height=3)
+        self.note_text.grid(row=10, column=1, padx=10, pady=10, sticky="w")
         
         # 按钮区域
         btn_frame = ttk.Frame(form_frame)
-        btn_frame.grid(row=10, column=0, columnspan=2, pady=20)
+        btn_frame.grid(row=11, column=0, columnspan=2, pady=20)
         
         ttk.Button(btn_frame, text="新建", command=self.clear_form).pack(side="left", padx=10)
         ttk.Button(btn_frame, text="保存", command=self.save_account).pack(side="left", padx=10)
@@ -368,6 +480,7 @@ class AccountManager:
         self.id_var.set("")  # 清空ID
         self.status_var.set(False)
         self.unban_time_var.set("")
+        self.extended_ban_var.set("")  # 清空追封状态
         self.ban_duration_var.set("无")  # 默认为"无"
         
         # 清空备注文本框
@@ -376,7 +489,7 @@ class AccountManager:
         # 取消选择
         if self.tree.selection():
             self.tree.selection_remove(self.tree.selection()[0])
-    
+            
     def on_unban_time_changed(self, *args):
         """当解封时间手动修改时触发"""
         # 只有在封禁状态时才执行
@@ -427,6 +540,8 @@ class AccountManager:
             self.ban_duration_var.set("无")
             # 清空解封时间
             self.unban_time_var.set("")
+            # 清空追封标记
+            self.extended_ban_var.set("")
         
         # 更新"追3天"按钮状态
         self.update_extend_button_state()
@@ -438,11 +553,13 @@ class AccountManager:
         if duration == "无":
             # 选择"无"时，状态设为正常
             self.status_var.set(False)
-            # 清空解封时间
+            # 清空解封时间和追封标记
             self.unban_time_var.set("")
+            self.extended_ban_var.set("")
         elif duration == "追3天":
             # 选择"追3天"时，处理追加封禁
             self.status_var.set(True)  # 确保设为封禁状态
+            self.extended_ban_var.set("追3天")  # 设置追封标记
             
             # 获取当前解封时间
             current_unban_time_str = self.unban_time_var.get()
@@ -460,15 +577,8 @@ class AccountManager:
                         # 已过期，从当前时间开始计算3天
                         new_unban_time = now + datetime.timedelta(days=3)
                     else:
-                        # 计算还需要追加的小时数，使总时长达到3天
-                        hours_in_three_days = 72  # 3天=72小时
-                        if hours_from_now < hours_in_three_days:
-                            # 未满3天，追加时间
-                            additional_hours = hours_in_three_days - hours_from_now
-                            new_unban_time = current_unban_time + datetime.timedelta(hours=additional_hours)
-                        else:
-                            # 已经超过3天，不变
-                            new_unban_time = current_unban_time
+                        # 在当前解封时间基础上追加2天（因为原来是1天，加2天后就是3天）
+                        new_unban_time = current_unban_time + datetime.timedelta(days=2)
                             
                     # 设置新的解封时间
                     self.unban_time_var.set(new_unban_time.strftime("%Y-%m-%d %H:%M:%S"))
@@ -500,6 +610,8 @@ class AccountManager:
             self.last_duration = duration
             # 选择标准时长时，状态设为封禁
             self.status_var.set(True)
+            # 清空追封标记
+            self.extended_ban_var.set("")
             # 计算解封时间
             self.calculate_unban_time()
     
@@ -553,6 +665,7 @@ class AccountManager:
             "id": self.id_var.get(),  # 保存ID
             "status": self.status_var.get(),
             "unban_time": self.unban_time_var.get(),
+            "extended_ban": self.extended_ban_var.get(),  # 保存追封状态
             "note": note_text  # 使用Text控件的内容
         }
         
@@ -617,9 +730,10 @@ class AccountManager:
         total_accounts = len(self.accounts)
         banned_accounts = sum(1 for account in self.accounts if account["status"])
         unbanned_accounts = total_accounts - banned_accounts
+        extended_bans = sum(1 for account in self.accounts if account.get("extended_ban") == "追3天")
         
         # 更新统计信息
-        stats_text = f"账号列表 (共{total_accounts}个账号，封禁中{banned_accounts}个，未封禁{unbanned_accounts}个)"
+        stats_text = f"账号列表 (共{total_accounts}个账号，封禁中{banned_accounts}个，未封禁{unbanned_accounts}个，追封{extended_bans}个)"
         self.list_frame.configure(text=stats_text)
         
         # 排序账号数据
@@ -671,20 +785,14 @@ class AccountManager:
                     key=unban_time_key,
                     reverse=self.sort_reverse
                 )
-        # 默认不进行排序，保持账号添加的顺序
-        # 移除默认按TPP段位排序的代码
-        # elif all_unbanned:
-        #     sorted_accounts.sort(
-        #         key=lambda x: self.rank_map.get(x["tpp_rank"], 0),
-        #         reverse=False  # 默认从低到高
-        #     )
         
-        # 添加账号数据，包括ID列
+        # 添加账号数据，包括ID列和追封列
         for i, account in enumerate(sorted_accounts):
             status = "❌" if account["status"] else "✅"
-            # 确保账号对象有备注字段和ID字段
+            # 确保账号对象有备注字段、ID字段和追封字段
             note = account.get("note", "")
             account_id = account.get("id", "")
+            extended_ban = account.get("extended_ban", "")
             
             # 格式化解封时间为简略格式
             unban_time_display = ""
@@ -704,6 +812,7 @@ class AccountManager:
                 str(account["tpp_rank"]),
                 status,
                 unban_time_display,
+                str(extended_ban),  # 追封列
                 str(account["phone"]),
                 str(account_id)
             ))
@@ -730,6 +839,7 @@ class AccountManager:
                 self.id_var.set(account.get("id", ""))  # 设置ID
                 self.status_var.set(account["status"])
                 self.unban_time_var.set(account["unban_time"])
+                self.extended_ban_var.set(account.get("extended_ban", ""))  # 设置追封状态
                 
                 # 设置备注（如果有）- 使用Text控件
                 self.note_text.delete("1.0", tk.END)
@@ -1047,6 +1157,110 @@ class AccountManager:
                 self.duration_radios["追3天"].configure(state="disabled")
             except:
                 pass
+
+    # 添加网络请求功能来查询封禁状态
+    def check_ban_status_online(self, player_id):
+        """
+        通过网络接口查询账号的封禁状态
+        返回: (是否封禁, 是否查询成功)
+        """
+        if not player_id:
+            return False, False
+            
+        try:
+            # 调用独立的API查询函数
+            return self.query_ban_api(player_id)
+        except Exception as e:
+            print(f"查询封禁状态出错: {str(e)}")
+            return False, False
+            
+    def query_ban_api(self, player_id):
+        """
+        独立的API查询函数，以便于未来更换API时只需修改此函数
+        返回: (是否封禁, 是否查询成功)
+        """
+        url = f"https://apiv1.pubg.plus/steam/player/banv2?player_id={player_id}"
+        print(f"正在请求API: {url}")
+        try:
+            # 打印详细的请求信息
+            print(f"开始查询玩家 {player_id} 的封禁状态...")
+            
+            # 添加请求头，模拟浏览器
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            
+            response = requests.get(url, headers=headers, timeout=10)  # 增加超时时间到10秒
+            print(f"API响应状态码: {response.status_code}")
+            
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    print(f"API返回数据: {data}")
+                    
+                    if "ban" in data and "banType" in data["ban"]:
+                        # 检查封禁状态: TemporaryBan表示封禁，Innocent表示未封禁
+                        ban_type = data["ban"]["banType"]
+                        is_banned = ban_type == "TemporaryBan"
+                        print(f"账号 {player_id} 查询结果: ban_type={ban_type}, {'已封禁' if is_banned else '未封禁'}")
+                        return is_banned, True
+                    else:
+                        print(f"API返回数据格式错误，缺少预期字段: {data}")
+                except Exception as e:
+                    print(f"解析API响应JSON出错: {str(e)}")
+                    print(f"原始响应内容: {response.text[:500]}...") # 只打印前500个字符
+            else:
+                print(f"API请求失败，状态码: {response.status_code}")
+                print(f"响应内容: {response.text[:500]}...") # 只打印前500个字符
+        except Exception as e:
+            print(f"API请求异常: {str(e)}")
+            import traceback
+            traceback.print_exc()  # 打印详细的异常堆栈信息
+            
+        return False, False
+
+    def refresh_ban_status(self):
+        """刷新封禁状态并更新界面"""
+        # 禁用刷新按钮
+        self.refresh_btn.configure(state="disabled")
+        
+        # 显示正在刷新的提示
+        self.status_message.set("正在刷新账号状态...")
+        self.root.update()  # 强制更新界面以显示提示消息
+        
+        print("\n===== 开始刷新封禁状态 =====")
+        
+        # 计算有多少未封禁账号需要查询
+        unbanned_accounts = sum(1 for account in self.accounts if not account["status"] and account.get("id"))
+        banned_accounts = sum(1 for account in self.accounts if account["status"] and account.get("id"))
+        
+        print(f"需要检查的账号: 未封禁{unbanned_accounts}个，封禁中{banned_accounts}个")
+        
+        # 更新提示消息
+        if unbanned_accounts > 0:
+            self.status_message.set(f"正在查询{unbanned_accounts}个未封禁账号的状态...")
+            self.root.update()
+        
+        # 调用更新封禁状态方法
+        updated = self.update_ban_status()
+        
+        # 更新界面
+        self.update_treeview()
+        
+        print(f"刷新完成，状态更新: {updated}")
+        print("===== 刷新封禁状态结束 =====\n")
+        
+        # 显示状态信息
+        if updated:
+            self.status_message.set("已更新账号状态，部分账号的封禁状态已改变")
+        else:
+            self.status_message.set("已刷新账号状态，无账号状态变化")
+            
+        # 重新启用刷新按钮
+        self.refresh_btn.configure(state="normal")
+            
+        # 3秒后清空状态栏
+        self.root.after(3000, lambda: self.status_message.set(""))
 
 if __name__ == "__main__":
     root = tk.Tk()
