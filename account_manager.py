@@ -85,9 +85,9 @@ class AccountManager:
         # 启动时检查并更新封禁状态
         self.update_ban_status()
     
-    def check_extended_ban(self, account):
+    def check_ban_real(self, account):
         """
-        检查账号是否被延长封禁
+        检查账号的真实封禁状态
         account: 账号对象
         返回: 是否有更新
         """
@@ -160,62 +160,65 @@ class AccountManager:
             if "extended_ban" not in account:
                 account["extended_ban"] = ""
             
-            # 检查账号状态
+            # 首先检查本地封禁时间
+            local_ban_expired = False
             if account["status"] and account["unban_time"]:
                 print(f"账号 {account.get('name', '未命名')} 目前为封禁状态，解封时间: {account['unban_time']}")
                 try:
                     # 检查解封时间是否已过期
                     unban_time = datetime.datetime.strptime(account["unban_time"], "%Y-%m-%d %H:%M:%S")
                     if current_time >= unban_time:
-                        print(f"账号 {account.get('name', '未命名')} 解封时间已过期，需通过API确认真实状态")
-                        # 本地解封时间已过期，但需要通过API确认真实状态
-                        if account.get("id"):
-                            print(f"账号有ID: {account.get('id')}，将通过API检查状态")
-                            # 直接用check_extended_ban检查API状态，统一处理逻辑
-                            temp_account = account.copy()
-                            temp_account["status"] = False  # 临时设为未封禁，以触发API检查
-                            api_calls_count += 1
-                            if self.check_extended_ban(temp_account):
-                                # 从临时账号复制更新后的状态回原账号
-                                account["status"] = temp_account["status"]
-                                account["unban_time"] = temp_account["unban_time"]
-                                account["extended_ban"] = temp_account["extended_ban"]
-                                status_updated = True
-                                print(f"账号 {account.get('name', '未命名')} 状态已更新")
-                            elif not temp_account["status"]:  # API确认未封禁
-                                # 清空解封时间和追封标记
-                                account["status"] = False
-                                account["unban_time"] = ""
-                                account["extended_ban"] = ""
-                                status_updated = True
-                                print(f"账号 {account.get('name', '未命名')} API确认未封禁，已更新状态")
-                        else:
-                            print(f"账号 {account.get('name', '未命名')} 无ID，无法通过API检查，直接清空解封时间")
-                            # 没有ID无法查询，直接清空解封时间和追封标记
-                            account["status"] = False
-                            account["unban_time"] = ""
-                            account["extended_ban"] = ""
-                            status_updated = True
+                        print(f"账号 {account.get('name', '未命名')} 本地解封时间已过期")
+                        local_ban_expired = True
                 except Exception as e:
-                    print(f"处理账号 {account.get('name', '未命名')} 时发生异常: {str(e)}")
-                    # 日期格式无效，忽略
-                    pass
-            elif not account["status"]:
-                print(f"账号 {account.get('name', '未命名')} 目前为正常状态")
-                # 未封禁的账号，检查是否被封禁
-                if account.get("id"):
-                    print(f"账号有ID: {account.get('id')}，将通过API检查是否被封禁")
-                    api_calls_count += 1
-                    if self.check_extended_ban(account):
-                        status_updated = True
-                        print(f"账号 {account.get('name', '未命名')} 状态已更新")
-                else:
-                    print(f"账号 {account.get('name', '未命名')} 无ID，跳过API检查")
+                    print(f"处理账号 {account.get('name', '未命名')} 解封时间时发生异常: {str(e)}")
+                    # 日期格式无效，标记为过期以重新判断
+                    local_ban_expired = True
+            else:
+                print(f"账号 {account.get('name', '未命名')} 目前为正常状态或无解封时间")
+                
+            # 对于每个有ID的账号，都调用API检查真实封禁状态
+            if account.get("id"):
+                print(f"账号 {account.get('name', '未命名')} ID: {account['id']}，正在查询API确认真实状态")
+                
+                # 准备用于API检查的账号对象
+                check_account = account.copy()
+                
+                # 如果本地封禁已过期，在检查前将状态临时设为未封禁
+                if local_ban_expired:
+                    print(f"本地封禁已过期，临时标记为未封禁以进行API检查")
+                    check_account["status"] = False
+                
+                # 进行API检查
+                api_calls_count += 1
+                if self.check_ban_real(check_account):
+                    # API检查导致状态变化，更新原账号
+                    account["status"] = check_account["status"]
+                    account["unban_time"] = check_account["unban_time"]
+                    account["extended_ban"] = check_account["extended_ban"]
+                    status_updated = True
+                    print(f"API检查后状态已更新: {'已封禁' if account['status'] else '未封禁'}")
+                elif local_ban_expired:
+                    # API检查无更新但本地封禁已过期，设为未封禁
+                    account["status"] = False
+                    account["unban_time"] = ""
+                    account["extended_ban"] = ""
+                    status_updated = True
+                    print(f"API未检测到封禁且本地封禁已过期，设为未封禁")
+            else:
+                print(f"账号 {account.get('name', '未命名')} 无ID，仅根据本地时间判断")
+                # 无ID账号，只能根据本地时间判断
+                if local_ban_expired:
+                    account["status"] = False
+                    account["unban_time"] = ""
+                    account["extended_ban"] = ""
+                    status_updated = True
+                    print(f"账号无ID且本地封禁已过期，设为未封禁")
             
             # 添加延迟以避免API请求过快
             if account.get("id"):
-                print(f"添加0.2秒延迟，避免API请求过快")
-                time.sleep(0.2)
+                print(f"添加2秒延迟，避免API请求过快")
+                time.sleep(2)
         
         print(f"所有账号处理完毕，共进行了{api_calls_count}次API调用，状态更新: {status_updated}")
         
