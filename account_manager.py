@@ -100,7 +100,8 @@ class AccountManager:
     def start_background_check(self):
         """启动后台检查任务"""
         if not self.background_task_running:
-            self.status_message.set("正在后台检查账号状态...")
+            total_accounts = len(self.accounts)
+            self.status_message.set(f"正在准备检查 {total_accounts} 个账号状态...")
             # 启动后台线程执行检查
             self.background_task_running = True
             threading.Thread(target=self.background_check_task, daemon=True).start()
@@ -126,9 +127,9 @@ class AccountManager:
         
         # 更新状态信息
         if updated:
-            self.status_message.set("已更新账号状态，部分账号的封禁状态已改变")
+            self.status_message.set("账号检查完成：部分账号的封禁状态已改变")
         else:
-            self.status_message.set("已检查账号状态，无状态变化")
+            self.status_message.set("账号检查完成：无状态变化")
         
         # 3秒后清空状态栏
         self.root.after(3000, lambda: self.status_message.set(""))
@@ -247,6 +248,11 @@ class AccountManager:
         for idx, account in enumerate(self.accounts):
             account_name = account.get('name', '未命名')
             print(f"正在处理第{idx+1}个账号: {account_name}...")
+            
+            # 更新状态栏显示当前正在检查的账号
+            self.root.after(0, lambda name=account_name, i=idx+1, total=len(self.accounts): 
+                           self.status_message.set(f"正在检查账号 ({i}/{total}): {name}"))
+            
             # 为每个账号初始化追封字段（如果不存在）
             if "extended_ban" not in account:
                 account["extended_ban"] = ""
