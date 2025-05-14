@@ -6,6 +6,7 @@ import os
 import sys
 import requests  # 导入requests库用于网络请求
 import time  # 用于添加请求延迟
+import threading  # 用于实现后台任务
 
 class AccountManager:
     def __init__(self, root):
@@ -61,29 +62,117 @@ class AccountManager:
         self.drag_source_index = None
         self.custom_order = {}  # 用于保存用户自定义的顺序
         
-        # 加载账号数据
-        self.load_accounts()
+        # 后台任务标志
+        self.background_task_running = False
         
+        # 仅加载账号数据，不执行检查
+        self.load_accounts_only()
+        
+        # 创建界面
         self.create_widgets()
-        self.update_treeview()
         
-        # 初始不添加排序标记
-        # self.update_sort_indicator()
+        # 更新表格显示
+        self.update_treeview()
         
         # 启动时打印信息
         print("程序启动完成，准备就绪。")
+        
+        # 在界面显示后延迟启动后台检查任务
+        self.root.after(1000, self.start_background_check)
     
-    def load_accounts(self):
-        """从文件加载账号数据"""
+    def load_accounts_only(self):
+        """仅从文件加载账号数据，不执行检查"""
         if os.path.exists(self.data_file):
             try:
                 with open(self.data_file, 'r', encoding='utf-8') as f:
                     self.accounts = json.load(f)
-            except:
+                print(f"已加载 {len(self.accounts)} 个账号")
+            except Exception as e:
+                print(f"加载账号数据出错: {str(e)}")
                 self.accounts = []
-        
+                
+    def load_accounts(self):
+        """从文件加载账号数据并检查状态"""
+        self.load_accounts_only()
         # 启动时检查并更新封禁状态
         self.update_ban_status()
+    
+    def start_background_check(self):
+        """启动后台检查任务"""
+        if not self.background_task_running:
+            self.status_message.set("正在后台检查账号状态...")
+            # 启动后台线程执行检查
+            self.background_task_running = True
+            threading.Thread(target=self.background_check_task, daemon=True).start()
+    
+    def background_check_task(self):
+        """后台线程执行账号状态检查"""
+        try:
+            # 执行状态更新
+            updated = self.update_ban_status()
+            
+            # 在主线程中更新UI
+            self.root.after(0, lambda: self.finish_background_check(updated))
+        except Exception as e:
+            print(f"后台检查任务异常: {str(e)}")
+            # 在主线程中更新状态
+            self.root.after(0, lambda: self.status_message.set(f"检查过程出错: {str(e)}"))
+            self.background_task_running = False
+    
+    def finish_background_check(self, updated):
+        """完成后台检查，更新界面"""
+        # 更新表格
+        self.update_treeview()
+        
+        # 更新状态信息
+        if updated:
+            self.status_message.set("已更新账号状态，部分账号的封禁状态已改变")
+        else:
+            self.status_message.set("已检查账号状态，无状态变化")
+        
+        # 3秒后清空状态栏
+        self.root.after(3000, lambda: self.status_message.set(""))
+        
+        # 重置后台任务标志
+        self.background_task_running = False
+        
+        print("后台检查任务完成")
+    
+    def update_single_account_ui(self, idx):
+        """更新单个账号的UI显示"""
+        # 这个方法会在主线程中被调用
+        # 找到对应的树项并更新
+        items = self.tree.get_children()
+        if 0 <= idx < len(items):
+            item_id = items[idx]
+            account = self.accounts[idx]
+            
+            # 获取状态和解封时间显示
+            status = "❌" if account["status"] else "✅"
+            unban_time_display = ""
+            if account["status"] and account["unban_time"]:
+                try:
+                    unban_time = datetime.datetime.strptime(account["unban_time"], "%Y-%m-%d %H:%M:%S")
+                    unban_time_display = unban_time.strftime("%m-%d %H:%M")
+                except:
+                    unban_time_display = account["unban_time"]
+            
+            # 更新表项
+            self.tree.item(item_id, values=(
+                idx + 1,
+                str(account["name"]),
+                str(account.get("note", "")),
+                str(account["fpp_rank"]),
+                str(account["tpp_rank"]),
+                status,
+                unban_time_display,
+                str(account.get("extended_ban", "")),
+                str(account["phone"]),
+                str(account.get("id", ""))
+            ))
+            
+            # 更新统计信息
+            self.update_stats_info()
     
     def check_ban_real(self, account):
         """
@@ -104,6 +193,7 @@ class AccountManager:
             
         # 如果查询成功且账号当前状态与API状态不一致
         if account["status"] != is_banned:
+            account_name = account.get('name', '未命名')
             if is_banned:  # API显示已封禁，但本地状态是未封禁
                 # 更新为封禁状态
                 account["status"] = True
@@ -115,7 +205,7 @@ class AccountManager:
                     now = datetime.datetime.now()
                     unban_time = now + datetime.timedelta(hours=24)
                     account["unban_time"] = unban_time.strftime("%Y-%m-%d %H:%M:%S")
-                    print(f"账号 {account['name']} 被检测到封禁，已设置为封禁24小时")
+                    print(f"账号 {account_name} 被检测到封禁，已设置为封禁24小时")
                 else:
                     # 有解封时间记录，视为追封
                     try:
@@ -128,20 +218,20 @@ class AccountManager:
                         account["extended_ban"] = "追3天"
                         new_unban_time = current_unban_time + datetime.timedelta(days=2)
                         account["unban_time"] = new_unban_time.strftime("%Y-%m-%d %H:%M:%S")
-                        print(f"账号 {account['name']} 被检测到追封，已延长封禁时间2天")
+                        print(f"账号 {account_name} 被检测到追封，已延长封禁时间2天")
                     except:
                         # 解析失败，从当前时间开始计算24小时
                         account["extended_ban"] = ""  # 解析失败不作为追封
                         now = datetime.datetime.now()
                         unban_time = now + datetime.timedelta(hours=24)
                         account["unban_time"] = unban_time.strftime("%Y-%m-%d %H:%M:%S")
-                        print(f"账号 {account['name']} 解封时间格式无效，重置为封禁24小时")
+                        print(f"账号 {account_name} 解封时间格式无效，重置为封禁24小时")
             else:  # API显示未封禁，但本地状态是封禁
                 # 更新为未封禁状态
                 account["status"] = False
                 account["unban_time"] = ""
                 account["extended_ban"] = ""
-                print(f"账号 {account['name']} 已确认解封")
+                print(f"账号 {account_name} 已确认解封")
                 
             return True  # 状态有更新
             
@@ -155,7 +245,8 @@ class AccountManager:
         api_calls_count = 0
         
         for idx, account in enumerate(self.accounts):
-            print(f"正在处理第{idx+1}个账号: {account.get('name', '未命名')}...")
+            account_name = account.get('name', '未命名')
+            print(f"正在处理第{idx+1}个账号: {account_name}...")
             # 为每个账号初始化追封字段（如果不存在）
             if "extended_ban" not in account:
                 account["extended_ban"] = ""
@@ -163,23 +254,23 @@ class AccountManager:
             # 首先检查本地封禁时间
             local_ban_expired = False
             if account["status"] and account["unban_time"]:
-                print(f"账号 {account.get('name', '未命名')} 目前为封禁状态，解封时间: {account['unban_time']}")
+                print(f"账号 {account_name} 目前为封禁状态，解封时间: {account['unban_time']}")
                 try:
                     # 检查解封时间是否已过期
                     unban_time = datetime.datetime.strptime(account["unban_time"], "%Y-%m-%d %H:%M:%S")
                     if current_time >= unban_time:
-                        print(f"账号 {account.get('name', '未命名')} 本地解封时间已过期")
+                        print(f"账号 {account_name} 本地解封时间已过期")
                         local_ban_expired = True
                 except Exception as e:
-                    print(f"处理账号 {account.get('name', '未命名')} 解封时间时发生异常: {str(e)}")
+                    print(f"处理账号 {account_name} 解封时间时发生异常: {str(e)}")
                     # 日期格式无效，标记为过期以重新判断
                     local_ban_expired = True
             else:
-                print(f"账号 {account.get('name', '未命名')} 目前为正常状态或无解封时间")
+                print(f"账号 {account_name} 目前为正常状态或无解封时间")
                 
             # 对于每个有ID的账号，都调用API检查真实封禁状态
             if account.get("id"):
-                print(f"账号 {account.get('name', '未命名')} ID: {account['id']}，正在查询API确认真实状态")
+                print(f"账号 {account_name} ID: {account['id']}，正在查询API确认真实状态")
                 
                 # 准备用于API检查的账号对象
                 check_account = account.copy()
@@ -191,29 +282,42 @@ class AccountManager:
                 
                 # 进行API检查
                 api_calls_count += 1
-                if self.check_ban_real(check_account):
+                account_updated = self.check_ban_real(check_account)
+                if account_updated:
                     # API检查导致状态变化，更新原账号
+                    old_status = account["status"]
                     account["status"] = check_account["status"]
                     account["unban_time"] = check_account["unban_time"]
                     account["extended_ban"] = check_account["extended_ban"]
                     status_updated = True
-                    print(f"API检查后状态已更新: {'已封禁' if account['status'] else '未封禁'}")
+                    print(f"账号 {account_name} API检查后状态已更新: {'已封禁' if account['status'] else '未封禁'}")
+                    
+                    # 在主线程中更新UI显示
+                    self.root.after(0, lambda i=idx: self.update_single_account_ui(i))
                 elif local_ban_expired:
                     # API检查无更新但本地封禁已过期，设为未封禁
+                    old_status = account["status"]
                     account["status"] = False
                     account["unban_time"] = ""
                     account["extended_ban"] = ""
                     status_updated = True
-                    print(f"API未检测到封禁且本地封禁已过期，设为未封禁")
+                    print(f"账号 {account_name} API未检测到封禁且本地封禁已过期，设为未封禁")
+                    
+                    # 在主线程中更新UI显示
+                    self.root.after(0, lambda i=idx: self.update_single_account_ui(i))
             else:
-                print(f"账号 {account.get('name', '未命名')} 无ID，仅根据本地时间判断")
+                print(f"账号 {account_name} 无ID，仅根据本地时间判断")
                 # 无ID账号，只能根据本地时间判断
                 if local_ban_expired:
+                    old_status = account["status"]
                     account["status"] = False
                     account["unban_time"] = ""
                     account["extended_ban"] = ""
                     status_updated = True
-                    print(f"账号无ID且本地封禁已过期，设为未封禁")
+                    print(f"账号 {account_name} 无ID且本地封禁已过期，设为未封禁")
+                    
+                    # 在主线程中更新UI显示
+                    self.root.after(0, lambda i=idx: self.update_single_account_ui(i))
             
             # 添加延迟以避免API请求过快
             if account.get("id"):
@@ -1222,8 +1326,24 @@ class AccountManager:
             
         return False, False
 
+    def update_stats_info(self):
+        """更新统计信息"""
+        total_accounts = len(self.accounts)
+        banned_accounts = sum(1 for account in self.accounts if account["status"])
+        unbanned_accounts = total_accounts - banned_accounts
+        extended_bans = sum(1 for account in self.accounts if account.get("extended_ban") == "追3天")
+        
+        # 更新统计信息文本
+        stats_text = f"账号列表 (共{total_accounts}个账号，封禁中{banned_accounts}个，未封禁{unbanned_accounts}个，追封{extended_bans}个)"
+        self.list_frame.configure(text=stats_text)
+    
     def refresh_ban_status(self):
         """刷新封禁状态并更新界面"""
+        # 如果后台任务正在运行，不再启动新任务
+        if self.background_task_running:
+            self.status_message.set("正在检查账号状态，请稍候...")
+            return
+            
         # 禁用刷新按钮
         self.refresh_btn.configure(state="disabled")
         
@@ -1231,39 +1351,12 @@ class AccountManager:
         self.status_message.set("正在刷新账号状态...")
         self.root.update()  # 强制更新界面以显示提示消息
         
-        print("\n===== 开始刷新封禁状态 =====")
+        # 启动后台检查任务
+        self.background_task_running = True
+        threading.Thread(target=self.background_check_task, daemon=True).start()
         
-        # 计算有多少未封禁账号需要查询
-        unbanned_accounts = sum(1 for account in self.accounts if not account["status"] and account.get("id"))
-        banned_accounts = sum(1 for account in self.accounts if account["status"] and account.get("id"))
-        
-        print(f"需要检查的账号: 未封禁{unbanned_accounts}个，封禁中{banned_accounts}个")
-        
-        # 更新提示消息
-        if unbanned_accounts > 0:
-            self.status_message.set(f"正在查询{unbanned_accounts}个未封禁账号的状态...")
-            self.root.update()
-        
-        # 调用更新封禁状态方法
-        updated = self.update_ban_status()
-        
-        # 更新界面
-        self.update_treeview()
-        
-        print(f"刷新完成，状态更新: {updated}")
-        print("===== 刷新封禁状态结束 =====\n")
-        
-        # 显示状态信息
-        if updated:
-            self.status_message.set("已更新账号状态，部分账号的封禁状态已改变")
-        else:
-            self.status_message.set("已刷新账号状态，无账号状态变化")
-            
-        # 重新启用刷新按钮
-        self.refresh_btn.configure(state="normal")
-            
-        # 3秒后清空状态栏
-        self.root.after(3000, lambda: self.status_message.set(""))
+        # 延迟启用刷新按钮，即使任务还未完成
+        self.root.after(5000, lambda: self.refresh_btn.configure(state="normal"))
 
 if __name__ == "__main__":
     root = tk.Tk()
