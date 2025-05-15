@@ -88,10 +88,12 @@ class AccountManager:
                     self.accounts = json.load(f)
                 print(f"已加载 {len(self.accounts)} 个账号")
                 
-                # 确保每个账号都有level字段
+                # 确保每个账号都有level字段和account_id字段
                 for account in self.accounts:
                     if "level" not in account:
                         account["level"] = 0
+                    if "account_id" not in account:
+                        account["account_id"] = ""
             except Exception as e:
                 print(f"加载账号数据出错: {str(e)}")
                 self.accounts = []
@@ -197,7 +199,12 @@ class AccountManager:
             return False
             
         # 查询网络接口
-        is_banned, success, player_level = self.check_ban_status_online(account["id"])
+        is_banned, success, player_level, account_id = self.check_ban_status_online(account["id"])
+        
+        # 如果返回了有效的account_id，保存到账号对象
+        if account_id:
+            account["account_id"] = account_id
+            print(f"账号 {account.get('name', 'unknown')} 的account_id已更新: {account_id}")
         
         # 更新账号的等级信息(无论查询封禁状态是否成功)
         level_updated = False
@@ -267,6 +274,7 @@ class AccountManager:
         current_time = datetime.datetime.now()
         status_updated = False
         api_calls_count = 0
+        account_id_updated = False  # 添加标志，记录是否有account_id更新
         
         for idx, account in enumerate(self.accounts):
             account_name = account.get('name', '未命名')
@@ -279,6 +287,11 @@ class AccountManager:
             # 为每个账号初始化追封字段（如果不存在）
             if "extended_ban" not in account:
                 account["extended_ban"] = ""
+                
+            # 为每个账号初始化account_id字段（如果不存在）
+            if "account_id" not in account:
+                account["account_id"] = ""
+                account_id_updated = True
             
             # 首先检查本地封禁时间
             local_ban_expired = False
@@ -322,6 +335,15 @@ class AccountManager:
                         self.root.after(0, lambda i=idx: self.update_single_account_ui(i))
                         status_updated = True  # 标记为有更新，会触发保存
                 
+                # 同步account_id数据（无论状态是否变化）
+                if "account_id" in check_account and check_account.get("account_id"):
+                    old_account_id = account.get("account_id", "")
+                    new_account_id = check_account.get("account_id", "")
+                    if old_account_id != new_account_id:
+                        account["account_id"] = new_account_id
+                        print(f"同步账号 {account_name} 的account_id从 {old_account_id} 到 {new_account_id}")
+                        account_id_updated = True
+                
                 if account_updated:
                     # API检查导致状态变化，更新原账号
                     old_status = account["status"]
@@ -363,10 +385,10 @@ class AccountManager:
                 print(f"添加2秒延迟，避免API请求过快")
                 time.sleep(2)
         
-        print(f"所有账号处理完毕，共进行了{api_calls_count}次API调用，状态更新: {status_updated}")
+        print(f"所有账号处理完毕，共进行了{api_calls_count}次API调用，状态更新: {status_updated}，account_id更新: {account_id_updated}")
         
-        # 如果有状态更新，保存到文件
-        if status_updated:
+        # 如果有状态更新或account_id更新，保存到文件
+        if status_updated or account_id_updated:
             self.save_accounts()
             
         return status_updated
@@ -816,18 +838,33 @@ class AccountManager:
         except ValueError:
             level = 0
         
+        # 初始化account_id字段为空字符串
+        account_id = ""
+        
+        # 如果是更新现有账号，检查名称是否变更
+        if hasattr(self, 'current_account_id') and self.current_account_id is not None:
+            # 如果修改现有账号，检查名称是否变更
+            old_name = self.accounts[self.current_account_id].get("name", "")
+            # 如果名称没有变化，保留原来的account_id值
+            if old_name == name:
+                account_id = self.accounts[self.current_account_id].get("account_id", "")
+                print(f"账号名称未变更，保留原有account_id: {account_id}")
+            else:
+                print(f"账号名称已变更: {old_name} -> {name}，清空account_id")
+        
         account = {
             "name": name,
             "password": self.password_var.get(),
             "tpp_rank": self.tpp_rank_var.get(),
             "fpp_rank": self.fpp_rank_var.get(),
             "phone": self.phone_var.get(),
-            "id": self.id_var.get(),  # 保存ID
+            "id": self.id_var.get(),
             "status": self.status_var.get(),
             "unban_time": self.unban_time_var.get(),
-            "extended_ban": self.extended_ban_var.get(),  # 保存追封状态
-            "level": level,  # 保存等级
-            "note": note_text  # 使用Text控件的内容
+            "extended_ban": self.extended_ban_var.get(),
+            "level": level,
+            "note": note_text,
+            "account_id": account_id
         }
         
         if hasattr(self, 'current_account_id') and self.current_account_id is not None:
@@ -1343,22 +1380,22 @@ class AccountManager:
     def check_ban_status_online(self, player_id):
         """
         通过网络接口查询账号的封禁状态
-        返回: (是否封禁, 是否查询成功, 玩家等级)
+        返回: (是否封禁, 是否查询成功, 玩家等级, account_id)
         """
         if not player_id:
-            return False, False, 0
+            return False, False, 0, None
             
         try:
             # 调用独立的API查询函数
             return self.query_ban_api(player_id)
         except Exception as e:
             print(f"查询封禁状态出错: {str(e)}")
-            return False, False, 0
+            return False, False, 0, None
             
     def query_ban_api(self, player_id):
         """
         独立的API查询函数，以便于未来更换API时只需修改此函数
-        返回: (是否封禁, 是否查询成功, 玩家等级)
+        返回: (是否封禁, 是否查询成功, 玩家等级, account_id)
         """
         url = f"https://apiv1.pubg.plus/steam/player/banv2?player_id={player_id}"
         print(f"正在请求API: {url}")
@@ -1389,8 +1426,14 @@ class AccountManager:
                     else:
                         print(f"API返回数据: {data}")
                     
-                    # 初始化等级为0
+                    # 初始化等级为0和account_id为None
                     player_level = 0
+                    account_id = None
+                    
+                    # 获取API返回的account_id
+                    if "player" in data and "id" in data["player"]:
+                        account_id = data["player"]["id"]
+                        print(f"从API获取到account_id: {account_id}")
                     
                     # 如果有player信息，计算等级
                     if "player" in data and "tier" in data["player"] and "level" in data["player"]:
@@ -1405,7 +1448,7 @@ class AccountManager:
                         ban_type = data["ban"]["banType"]
                         is_banned = ban_type == "TemporaryBan"
                         print(f"账号 {player_id} 查询结果: ban_type={ban_type}, {'已封禁' if is_banned else '未封禁'}")
-                        return is_banned, True, player_level
+                        return is_banned, True, player_level, account_id
                     else:
                         print(f"API返回数据格式错误，缺少预期字段: {data}")
                 except Exception as e:
@@ -1419,7 +1462,7 @@ class AccountManager:
             import traceback
             traceback.print_exc()  # 打印详细的异常堆栈信息
             
-        return False, False, 0
+        return False, False, 0, None
 
     def update_stats_info(self):
         """更新统计信息"""
