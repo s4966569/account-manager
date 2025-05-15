@@ -87,6 +87,11 @@ class AccountManager:
                 with open(self.data_file, 'r', encoding='utf-8') as f:
                     self.accounts = json.load(f)
                 print(f"已加载 {len(self.accounts)} 个账号")
+                
+                # 确保每个账号都有level字段
+                for account in self.accounts:
+                    if "level" not in account:
+                        account["level"] = 0
             except Exception as e:
                 print(f"加载账号数据出错: {str(e)}")
                 self.accounts = []
@@ -158,11 +163,17 @@ class AccountManager:
                 except:
                     unban_time_display = account["unban_time"]
             
+            # 获取等级，如果等级为0则显示为空
+            level_display = ""
+            if "level" in account and account["level"] > 0:
+                level_display = str(account["level"])
+            
             # 更新表项
             self.tree.item(item_id, values=(
                 idx + 1,
                 str(account["name"]),
                 str(account.get("note", "")),
+                level_display,  # 没有等级或等级为0时显示为空
                 str(account["fpp_rank"]),
                 str(account["tpp_rank"]),
                 status,
@@ -186,14 +197,26 @@ class AccountManager:
             return False
             
         # 查询网络接口
-        is_banned, success = self.check_ban_status_online(account["id"])
+        is_banned, success, player_level = self.check_ban_status_online(account["id"])
         
-        # 如果查询失败，不进行任何更新
+        # 更新账号的等级信息(无论查询封禁状态是否成功)
+        level_updated = False
+        if player_level > 0:
+            if account.get("level", 0) != player_level:
+                account["level"] = player_level
+                level_updated = True
+                print(f"账号 {account.get('name', 'unknown')} 等级已更新: {player_level}")
+        elif player_level == 0 and "level" in account:
+            # 如果API返回0但账号已有等级值，保留原有等级
+            pass
+        
+        # 如果查询失败，仅返回等级更新状态
         if not success:
-            return False
+            return level_updated
             
-        # 如果查询成功且账号当前状态与API状态不一致
-        if account["status"] != is_banned:
+        # 如果查询成功且账号当前状态与API状态不一致，或者仅更新了等级信息
+        status_changed = account["status"] != is_banned
+        if status_changed:
             account_name = account.get('name', '未命名')
             if is_banned:  # API显示已封禁，但本地状态是未封禁
                 # 更新为封禁状态
@@ -236,7 +259,7 @@ class AccountManager:
                 
             return True  # 状态有更新
             
-        return False  # 状态未更新
+        return level_updated  # 如果状态未更新，返回是否有等级更新
     
     def update_ban_status(self):
         """检查并更新账号的封禁状态，返回是否有更新"""
@@ -289,6 +312,16 @@ class AccountManager:
                 # 进行API检查
                 api_calls_count += 1
                 account_updated = self.check_ban_real(check_account)
+                
+                # 同步等级数据（无论状态是否变化）
+                if "level" in check_account and check_account.get("level", 0) > 0:
+                    if account.get("level", 0) != check_account["level"]:
+                        account["level"] = check_account["level"]
+                        print(f"账号 {account_name} 等级已更新: {check_account['level']}")
+                        # 无论状态是否变化，只要等级变化就更新UI
+                        self.root.after(0, lambda i=idx: self.update_single_account_ui(i))
+                        status_updated = True  # 标记为有更新，会触发保存
+                
                 if account_updated:
                     # API检查导致状态变化，更新原账号
                     old_status = account["status"]
@@ -381,8 +414,8 @@ class AccountManager:
         self.list_frame = ttk.LabelFrame(self.root, text="账号列表")
         self.list_frame.place(x=10, y=10, width=950, height=680)  # 增加高度
         
-        # 创建Treeview - 添加extended_ban列在unban_time后面
-        columns = ("number", "name", "note", "fpp_rank", "tpp_rank", "status", "unban_time", "extended_ban", "phone", "id")
+        # 创建Treeview - 添加level列在note后面
+        columns = ("number", "name", "note", "level", "fpp_rank", "tpp_rank", "status", "unban_time", "extended_ban", "phone", "id")
         self.tree = ttk.Treeview(self.list_frame, columns=columns, show="headings", selectmode="browse")
         
         # 配置高亮样式
@@ -392,6 +425,7 @@ class AccountManager:
         self.tree.heading("number", text="序号")
         self.tree.heading("name", text="账号名称")
         self.tree.heading("note", text="备注")  # 移除点击排序命令
+        self.tree.heading("level", text="等级", command=lambda: self.force_sort("level"))  # 添加等级列
         self.tree.heading("fpp_rank", text="FPP段位", command=lambda: self.force_sort("fpp_rank"))
         self.tree.heading("tpp_rank", text="TPP段位", command=lambda: self.force_sort("tpp_rank"))
         self.tree.heading("status", text="状态", command=lambda: self.force_sort("status"))
@@ -403,14 +437,15 @@ class AccountManager:
         # 调整列宽以适应表格总宽度
         self.tree.column("number", width=40)  # 序号列窄一些
         self.tree.column("name", width=100)
-        self.tree.column("note", width=150)  # 备注列现在在第二位
+        self.tree.column("note", width=140)  # 略微减小备注列宽度
+        self.tree.column("level", width=50)  # 等级列宽
         self.tree.column("fpp_rank", width=80)
         self.tree.column("tpp_rank", width=80)
         self.tree.column("status", width=60)
         self.tree.column("unban_time", width=135)
         self.tree.column("extended_ban", width=60)  # 追封列宽
-        self.tree.column("phone", width=100)
-        self.tree.column("id", width=80)  # ID列宽
+        self.tree.column("phone", width=90)  # 略微减小ARS列宽度
+        self.tree.column("id", width=75)  # 略微减小ID列宽
         
         # 添加滚动条
         scrollbar = ttk.Scrollbar(self.list_frame, orient="vertical", command=self.tree.yview)
@@ -442,58 +477,63 @@ class AccountManager:
         self.name_var = tk.StringVar()
         ttk.Entry(form_frame, textvariable=self.name_var, width=34).grid(row=0, column=1, padx=10, pady=10)
         
+        # 等级
+        ttk.Label(form_frame, text="等级:").grid(row=1, column=0, padx=10, pady=10, sticky="w")
+        self.level_var = tk.StringVar()
+        ttk.Entry(form_frame, textvariable=self.level_var, width=34, state="readonly").grid(row=1, column=1, padx=10, pady=10)
+        
         # 密码
-        ttk.Label(form_frame, text="密码:").grid(row=1, column=0, padx=10, pady=10, sticky="w")
+        ttk.Label(form_frame, text="密码:").grid(row=2, column=0, padx=10, pady=10, sticky="w")
         self.password_var = tk.StringVar()
-        ttk.Entry(form_frame, textvariable=self.password_var, width=34).grid(row=1, column=1, padx=10, pady=10)
+        ttk.Entry(form_frame, textvariable=self.password_var, width=34).grid(row=2, column=1, padx=10, pady=10)
         
         # TPP段位
-        ttk.Label(form_frame, text="TPP段位:").grid(row=2, column=0, padx=10, pady=10, sticky="w")
+        ttk.Label(form_frame, text="TPP段位:").grid(row=3, column=0, padx=10, pady=10, sticky="w")
         self.tpp_rank_var = tk.StringVar()
-        ttk.Combobox(form_frame, textvariable=self.tpp_rank_var, values=self.rank_options, width=31, state="readonly").grid(row=2, column=1, padx=10, pady=10)
+        ttk.Combobox(form_frame, textvariable=self.tpp_rank_var, values=self.rank_options, width=31, state="readonly").grid(row=3, column=1, padx=10, pady=10)
         
         # FPP段位
-        ttk.Label(form_frame, text="FPP段位:").grid(row=3, column=0, padx=10, pady=10, sticky="w")
+        ttk.Label(form_frame, text="FPP段位:").grid(row=4, column=0, padx=10, pady=10, sticky="w")
         self.fpp_rank_var = tk.StringVar()
-        ttk.Combobox(form_frame, textvariable=self.fpp_rank_var, values=self.rank_options, width=31, state="readonly").grid(row=3, column=1, padx=10, pady=10)
+        ttk.Combobox(form_frame, textvariable=self.fpp_rank_var, values=self.rank_options, width=31, state="readonly").grid(row=4, column=1, padx=10, pady=10)
         
         # 手机号
-        ttk.Label(form_frame, text="ARS:").grid(row=4, column=0, padx=10, pady=10, sticky="w")
+        ttk.Label(form_frame, text="ARS:").grid(row=5, column=0, padx=10, pady=10, sticky="w")
         self.phone_var = tk.StringVar()
-        ttk.Entry(form_frame, textvariable=self.phone_var, width=34).grid(row=4, column=1, padx=10, pady=10)
+        ttk.Entry(form_frame, textvariable=self.phone_var, width=34).grid(row=5, column=1, padx=10, pady=10)
         
         # ID
-        ttk.Label(form_frame, text="ID:").grid(row=5, column=0, padx=10, pady=10, sticky="w")
+        ttk.Label(form_frame, text="ID:").grid(row=6, column=0, padx=10, pady=10, sticky="w")
         self.id_var = tk.StringVar()
-        ttk.Entry(form_frame, textvariable=self.id_var, width=34).grid(row=5, column=1, padx=10, pady=10)
+        ttk.Entry(form_frame, textvariable=self.id_var, width=34).grid(row=6, column=1, padx=10, pady=10)
         
         # 当前状态
-        ttk.Label(form_frame, text="封禁状态:").grid(row=6, column=0, padx=10, pady=10, sticky="w")
+        ttk.Label(form_frame, text="封禁状态:").grid(row=7, column=0, padx=10, pady=10, sticky="w")
         self.status_var = tk.BooleanVar()
         # 添加跟踪变量变化的回调
         self.status_var.trace_add("write", self.on_status_changed)
         
         status_frame = ttk.Frame(form_frame)
-        status_frame.grid(row=6, column=1, padx=10, pady=10, sticky="w")
+        status_frame.grid(row=7, column=1, padx=10, pady=10, sticky="w")
         ttk.Radiobutton(status_frame, text="正常 ✅", variable=self.status_var, value=False).pack(side="left")
         ttk.Radiobutton(status_frame, text="封禁 ❌", variable=self.status_var, value=True).pack(side="left", padx=10)
         
         # 解封时间
-        ttk.Label(form_frame, text="解封时间:").grid(row=7, column=0, padx=10, pady=10, sticky="w")
+        ttk.Label(form_frame, text="解封时间:").grid(row=8, column=0, padx=10, pady=10, sticky="w")
         self.unban_time_var = tk.StringVar()
         # 添加跟踪变量变化的回调，用于检测手动修改
         self.unban_time_var.trace_add("write", self.on_unban_time_changed)
-        ttk.Entry(form_frame, textvariable=self.unban_time_var, width=34).grid(row=7, column=1, padx=10, pady=10)
+        ttk.Entry(form_frame, textvariable=self.unban_time_var, width=34).grid(row=8, column=1, padx=10, pady=10)
         
         # 追封状态
-        ttk.Label(form_frame, text="追封状态:").grid(row=8, column=0, padx=10, pady=10, sticky="w")
+        ttk.Label(form_frame, text="追封状态:").grid(row=9, column=0, padx=10, pady=10, sticky="w")
         self.extended_ban_var = tk.StringVar()
-        ttk.Entry(form_frame, textvariable=self.extended_ban_var, width=34, state="readonly").grid(row=8, column=1, padx=10, pady=10)
+        ttk.Entry(form_frame, textvariable=self.extended_ban_var, width=34, state="readonly").grid(row=9, column=1, padx=10, pady=10)
         
         # 标记封禁 - 改为RadioButton横向排列
-        ttk.Label(form_frame, text="封禁时长:").grid(row=9, column=0, padx=10, pady=10, sticky="w")
+        ttk.Label(form_frame, text="封禁时长:").grid(row=10, column=0, padx=10, pady=10, sticky="w")
         ban_frame = ttk.Frame(form_frame)
-        ban_frame.grid(row=9, column=1, padx=10, pady=10, sticky="w")
+        ban_frame.grid(row=10, column=1, padx=10, pady=10, sticky="w")
         
         # 创建两行RadioButton，每行4个
         ban_row1 = ttk.Frame(ban_frame)
@@ -528,13 +568,13 @@ class AccountManager:
         self.unban_time_var.trace_add("write", self.update_extend_button_state)
         
         # 备注 - 改为3行高的文本框
-        ttk.Label(form_frame, text="备注:").grid(row=10, column=0, padx=10, pady=10, sticky="nw")
+        ttk.Label(form_frame, text="备注:").grid(row=11, column=0, padx=10, pady=10, sticky="nw")
         self.note_text = tk.Text(form_frame, width=34, height=3)
-        self.note_text.grid(row=10, column=1, padx=10, pady=10, sticky="w")
+        self.note_text.grid(row=11, column=1, padx=10, pady=10, sticky="w")
         
         # 按钮区域
         btn_frame = ttk.Frame(form_frame)
-        btn_frame.grid(row=11, column=0, columnspan=2, pady=20)
+        btn_frame.grid(row=12, column=0, columnspan=2, pady=20)
         
         ttk.Button(btn_frame, text="新建", command=self.clear_form).pack(side="left", padx=10)
         ttk.Button(btn_frame, text="保存", command=self.save_account).pack(side="left", padx=10)
@@ -586,6 +626,7 @@ class AccountManager:
         """清空表单"""
         self.current_account_id = None
         self.name_var.set("")
+        self.level_var.set("")  # 清空等级
         self.password_var.set("")
         self.tpp_rank_var.set("")
         self.fpp_rank_var.set("")
@@ -769,6 +810,12 @@ class AccountManager:
         # 获取备注文本
         note_text = self.note_text.get("1.0", tk.END).strip()
         
+        # 获取等级（如果为空，则设为0）
+        try:
+            level = int(self.level_var.get()) if self.level_var.get() else 0
+        except ValueError:
+            level = 0
+        
         account = {
             "name": name,
             "password": self.password_var.get(),
@@ -779,6 +826,7 @@ class AccountManager:
             "status": self.status_var.get(),
             "unban_time": self.unban_time_var.get(),
             "extended_ban": self.extended_ban_var.get(),  # 保存追封状态
+            "level": level,  # 保存等级
             "note": note_text  # 使用Text控件的内容
         }
         
@@ -844,6 +892,7 @@ class AccountManager:
         banned_accounts = sum(1 for account in self.accounts if account["status"])
         unbanned_accounts = total_accounts - banned_accounts
         extended_bans = sum(1 for account in self.accounts if account.get("extended_ban") == "追3天")
+        accounts_with_level = sum(1 for account in self.accounts if account.get("level", 0) > 0)
         
         # 更新统计信息
         stats_text = f"账号列表 (共{total_accounts}个账号，封禁中{banned_accounts}个，未封禁{unbanned_accounts}个，追封{extended_bans}个)"
@@ -873,6 +922,12 @@ class AccountManager:
                 # 按ARS(手机号)排序
                 sorted_accounts.sort(
                     key=lambda x: str(x.get("phone", "")),
+                    reverse=self.sort_reverse
+                )
+            elif self.sort_column == "level":
+                # 按等级排序
+                sorted_accounts.sort(
+                    key=lambda x: int(x.get("level", 0)) if x.get("level", 0) > 0 else -1,
                     reverse=self.sort_reverse
                 )
             elif self.sort_column == "unban_time":
@@ -907,6 +962,11 @@ class AccountManager:
             account_id = account.get("id", "")
             extended_ban = account.get("extended_ban", "")
             
+            # 获取等级，如果等级为0则显示为空
+            level_display = ""
+            if "level" in account and account["level"] > 0:
+                level_display = str(account["level"])
+            
             # 格式化解封时间为简略格式
             unban_time_display = ""
             if account["status"] and account["unban_time"]:
@@ -921,6 +981,7 @@ class AccountManager:
                 i + 1,  # 序号从1开始
                 str(account["name"]),
                 str(note),
+                level_display,  # 等级列，没有值时为空
                 str(account["fpp_rank"]),
                 str(account["tpp_rank"]),
                 status,
@@ -945,6 +1006,12 @@ class AccountManager:
             if str(account["name"]) == selected_name:  # 确保比较时两边都是字符串
                 self.current_account_id = i
                 self.name_var.set(account["name"])
+                
+                # 设置等级，如果等级为0则显示为空
+                level_value = ""
+                if "level" in account and account["level"] > 0:
+                    level_value = str(account["level"])
+                self.level_var.set(level_value)  # 设置等级
                 self.password_var.set(account["password"])
                 self.tpp_rank_var.set(account["tpp_rank"])
                 self.fpp_rank_var.set(account["fpp_rank"])
@@ -1055,7 +1122,8 @@ class AccountManager:
             "status": "状态",
             "unban_time": "解封时间",
             "phone": "ARS",
-            "note": "备注"
+            "note": "备注",
+            "level": "等级"
         }.get(column, column)
         direction = "降序" if self.sort_reverse else "升序"
         self.status_message.set(f"已按{column_name}进行{direction}排序")
@@ -1275,22 +1343,22 @@ class AccountManager:
     def check_ban_status_online(self, player_id):
         """
         通过网络接口查询账号的封禁状态
-        返回: (是否封禁, 是否查询成功)
+        返回: (是否封禁, 是否查询成功, 玩家等级)
         """
         if not player_id:
-            return False, False
+            return False, False, 0
             
         try:
             # 调用独立的API查询函数
             return self.query_ban_api(player_id)
         except Exception as e:
             print(f"查询封禁状态出错: {str(e)}")
-            return False, False
+            return False, False, 0
             
     def query_ban_api(self, player_id):
         """
         独立的API查询函数，以便于未来更换API时只需修改此函数
-        返回: (是否封禁, 是否查询成功)
+        返回: (是否封禁, 是否查询成功, 玩家等级)
         """
         url = f"https://apiv1.pubg.plus/steam/player/banv2?player_id={player_id}"
         print(f"正在请求API: {url}")
@@ -1309,14 +1377,35 @@ class AccountManager:
             if response.status_code == 200:
                 try:
                     data = response.json()
-                    print(f"API返回数据: {data}")
+                    # 调试用，只打印部分数据，避免数据过大
+                    if "player" in data:
+                        player_info = data["player"].copy()
+                        if "matches" in data:
+                            data_debug = data.copy()
+                            data_debug["matches"] = f"[{len(data['matches'])} matches]"
+                            print(f"API返回数据: {data_debug}")
+                        else:
+                            print(f"API返回数据: {data}")
+                    else:
+                        print(f"API返回数据: {data}")
+                    
+                    # 初始化等级为0
+                    player_level = 0
+                    
+                    # 如果有player信息，计算等级
+                    if "player" in data and "tier" in data["player"] and "level" in data["player"]:
+                        tier = data["player"]["tier"]
+                        level = data["player"]["level"]
+                        # 根据规则计算等级: (tier-1)*500+level
+                        player_level = (tier - 1) * 500 + level
+                        print(f"玩家等级信息: tier={tier}, level={level}, 计算后等级={player_level}")
                     
                     if "ban" in data and "banType" in data["ban"]:
                         # 检查封禁状态: TemporaryBan表示封禁，Innocent表示未封禁
                         ban_type = data["ban"]["banType"]
                         is_banned = ban_type == "TemporaryBan"
                         print(f"账号 {player_id} 查询结果: ban_type={ban_type}, {'已封禁' if is_banned else '未封禁'}")
-                        return is_banned, True
+                        return is_banned, True, player_level
                     else:
                         print(f"API返回数据格式错误，缺少预期字段: {data}")
                 except Exception as e:
@@ -1330,7 +1419,7 @@ class AccountManager:
             import traceback
             traceback.print_exc()  # 打印详细的异常堆栈信息
             
-        return False, False
+        return False, False, 0
 
     def update_stats_info(self):
         """更新统计信息"""
@@ -1338,9 +1427,10 @@ class AccountManager:
         banned_accounts = sum(1 for account in self.accounts if account["status"])
         unbanned_accounts = total_accounts - banned_accounts
         extended_bans = sum(1 for account in self.accounts if account.get("extended_ban") == "追3天")
+        accounts_with_level = sum(1 for account in self.accounts if account.get("level", 0) > 0)
         
         # 更新统计信息文本
-        stats_text = f"账号列表 (共{total_accounts}个账号，封禁中{banned_accounts}个，未封禁{unbanned_accounts}个，追封{extended_bans}个)"
+        stats_text = f"账号列表 (共{total_accounts}个账号，封禁中{banned_accounts}个，未封禁{unbanned_accounts}个，追封{extended_bans}个，有等级{accounts_with_level}个)"
         self.list_frame.configure(text=stats_text)
     
     def refresh_ban_status(self):
