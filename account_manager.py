@@ -117,24 +117,32 @@ class AccountManager:
         """后台线程执行账号状态检查"""
         try:
             # 执行状态更新
-            updated = self.update_ban_status()
+            updated_ban = self.update_ban_status()
+            
+            # 执行段位更新
+            print("封禁状态检查完成，开始查询段位信息...")
+            updated_rank = self.update_account_ranks()
             
             # 在主线程中更新UI
-            self.root.after(0, lambda: self.finish_background_check(updated))
+            self.root.after(0, lambda: self.finish_background_check(updated_ban, updated_rank))
         except Exception as e:
             print(f"后台检查任务异常: {str(e)}")
             # 在主线程中更新状态
             self.root.after(0, lambda: self.status_message.set(f"检查过程出错: {str(e)}"))
             self.background_task_running = False
     
-    def finish_background_check(self, updated):
+    def finish_background_check(self, updated_ban, updated_rank):
         """完成后台检查，更新界面"""
         # 更新表格
         self.update_treeview()
         
         # 更新状态信息
-        if updated:
-            self.status_message.set("账号检查完成：部分账号的封禁状态已改变")
+        if updated_ban and updated_rank:
+            self.status_message.set("账号检查完成：封禁状态和段位均有更新")
+        elif updated_ban:
+            self.status_message.set("账号检查完成：封禁状态有更新")
+        elif updated_rank:
+            self.status_message.set("账号检查完成：段位有更新")
         else:
             self.status_message.set("账号检查完成：无状态变化")
         
@@ -1496,6 +1504,210 @@ class AccountManager:
         
         # 延迟启用刷新按钮，即使任务还未完成
         self.root.after(5000, lambda: self.refresh_btn.configure(state="normal"))
+
+    def query_rank_api(self, account_id):
+        """
+        查询账号的段位信息
+        account_id: 账号的account_id
+        返回: (是否成功, tpp段位信息, fpp段位信息)
+            段位信息格式为字典: {"tier": 段位名称, "subTier": 子段位, "rankPoint": 分数}
+            如: {"tier": "Gold", "subTier": "4", "rankPoint": 2165}
+        """
+        if not account_id:
+            print("账号没有account_id，无法查询段位")
+            return False, None, None
+            
+        # 当前赛季
+        season = "division.bro.official.pc-2018-35"
+        url = f"https://apiv1.pubg.plus/steam/player/season_r?acc_id={account_id}&season={season}"
+        print(f"正在请求段位API: {url}")
+        
+        try:
+            # 添加请求头，模拟浏览器
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            
+            response = requests.get(url, headers=headers, timeout=10)
+            print(f"段位API响应状态码: {response.status_code}")
+            
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    print(f"段位API返回数据: {data}")
+                    
+                    # 初始化返回值
+                    tpp_rank = None
+                    fpp_rank = None
+                    
+                    if "attributes" in data and "rankedGameModeStats" in data["attributes"]:
+                        stats = data["attributes"]["rankedGameModeStats"]
+                        
+                        # 获取TPP段位信息
+                        if "squad" in stats:
+                            squad_data = stats["squad"]
+                            if "currentTier" in squad_data and "currentRankPoint" in squad_data:
+                                current_tier = squad_data["currentTier"]
+                                rank_point = squad_data["currentRankPoint"]
+                                
+                                tpp_rank = {
+                                    "tier": current_tier["tier"],
+                                    "subTier": current_tier["subTier"],
+                                    "rankPoint": rank_point
+                                }
+                                print(f"获取到TPP段位: {tpp_rank}")
+                        
+                        # 获取FPP段位信息
+                        if "squad-fpp" in stats:
+                            fpp_data = stats["squad-fpp"]
+                            if "currentTier" in fpp_data and "currentRankPoint" in fpp_data:
+                                current_tier = fpp_data["currentTier"]
+                                rank_point = fpp_data["currentRankPoint"]
+                                
+                                fpp_rank = {
+                                    "tier": current_tier["tier"],
+                                    "subTier": current_tier["subTier"],
+                                    "rankPoint": rank_point
+                                }
+                                print(f"获取到FPP段位: {fpp_rank}")
+                    
+                    return True, tpp_rank, fpp_rank
+                except Exception as e:
+                    print(f"解析段位API响应JSON出错: {str(e)}")
+                    print(f"原始响应内容: {response.text[:500]}...") # 只打印前500个字符
+            else:
+                print(f"段位API请求失败，状态码: {response.status_code}")
+                print(f"响应内容: {response.text[:500]}...") # 只打印前500个字符
+        except Exception as e:
+            print(f"段位API请求异常: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            
+        return False, None, None
+
+    def update_account_ranks(self):
+        """查询并更新所有账号的段位信息"""
+        print("开始查询所有账号段位信息...")
+        ranks_updated = False
+        
+        for idx, account in enumerate(self.accounts):
+            account_name = account.get('name', '未命名')
+            account_id = account.get('account_id', '')
+            
+            # 更新状态栏显示当前正在查询的账号
+            self.root.after(0, lambda name=account_name, i=idx+1, total=len(self.accounts): 
+                           self.status_message.set(f"正在查询账号段位 ({i}/{total}): {name}"))
+            
+            if not account_id:
+                print(f"账号 {account_name} 没有account_id，跳过段位查询")
+                continue
+                
+            print(f"正在查询账号 {account_name} 的段位信息...")
+            success, tpp_rank, fpp_rank = self.query_rank_api(account_id)
+            
+            if success:
+                # 更新TPP段位信息
+                if tpp_rank:
+                    # 转换段位名称
+                    tier_name_map = {
+                        "Silver": "白银",
+                        "Gold": "黄金",
+                        "Platinum": "铂金",
+                        "Diamond": "钻石",
+                        "Master": "大师"
+                    }
+                    
+                    tier_name = tier_name_map.get(tpp_rank["tier"], tpp_rank["tier"])
+                    sub_tier = tpp_rank["subTier"]
+                    rank_point = tpp_rank["rankPoint"]
+                    
+                    # 更新TPP段位格式: 黄金4(2165)
+                    tpp_rank_display = f"{tier_name}{sub_tier}({rank_point})"
+                    
+                    if account.get("tpp_rank") != tpp_rank_display:
+                        account["tpp_rank"] = tpp_rank_display
+                        print(f"账号 {account_name} TPP段位已更新: {tpp_rank_display}")
+                        ranks_updated = True
+                else:
+                    # 如果没有获取到段位，直接设置为未定级
+                    account["tpp_rank"] = "未定级"
+                    print(f"账号 {account_name} TPP段位已更新为: 未定级")
+                    ranks_updated = True
+                
+                # 更新FPP段位信息
+                if fpp_rank:
+                    # 转换段位名称
+                    tier_name_map = {
+                        "Silver": "白银",
+                        "Gold": "黄金",
+                        "Platinum": "铂金",
+                        "Diamond": "钻石",
+                        "Master": "大师"
+                    }
+                    
+                    tier_name = tier_name_map.get(fpp_rank["tier"], fpp_rank["tier"])
+                    sub_tier = fpp_rank["subTier"]
+                    rank_point = fpp_rank["rankPoint"]
+                    
+                    # 更新FPP段位格式: 铂金5(2523)
+                    fpp_rank_display = f"{tier_name}{sub_tier}({rank_point})"
+                    
+                    if account.get("fpp_rank") != fpp_rank_display:
+                        account["fpp_rank"] = fpp_rank_display
+                        print(f"账号 {account_name} FPP段位已更新: {fpp_rank_display}")
+                        ranks_updated = True
+                else:
+                    # 如果没有获取到段位，直接设置为未定级
+                    account["fpp_rank"] = "未定级"
+                    print(f"账号 {account_name} FPP段位已更新为: 未定级")
+                    ranks_updated = True
+                
+                # 在UI中更新显示
+                self.root.after(0, lambda i=idx: self.update_single_account_ui(i))
+            
+            # 添加延迟以避免API请求过快
+            time.sleep(1)
+        
+        # 如果有段位更新，保存到文件
+        if ranks_updated:
+            self.save_accounts()
+            self.status_message.set("段位查询完成: 有段位更新")
+        else:
+            self.status_message.set("段位查询完成: 无段位变化")
+            
+        # 3秒后清空状态栏
+        self.root.after(3000, lambda: self.status_message.set(""))
+        
+        return ranks_updated
+
+    def refresh_rank_status(self):
+        """刷新段位状态并更新界面"""
+        # 如果后台任务正在运行，不再启动新任务
+        if self.background_task_running:
+            self.status_message.set("正在检查账号状态，请稍候...")
+            return
+            
+        # 显示正在刷新的提示
+        self.status_message.set("正在查询账号段位...")
+        self.root.update()  # 强制更新界面以显示提示消息
+        
+        # 启动后台线程执行段位查询
+        self.background_task_running = True
+        
+        def run_rank_query():
+            try:
+                # 执行段位更新
+                self.update_account_ranks()
+            except Exception as e:
+                print(f"段位查询任务异常: {str(e)}")
+                # 在主线程中更新状态
+                self.root.after(0, lambda: self.status_message.set(f"段位查询出错: {str(e)}"))
+            finally:
+                # 重置后台任务标志
+                self.background_task_running = False
+        
+        # 启动后台线程
+        threading.Thread(target=run_rank_query, daemon=True).start()
 
 if __name__ == "__main__":
     root = tk.Tk()
