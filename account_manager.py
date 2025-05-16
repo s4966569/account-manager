@@ -943,17 +943,7 @@ class AccountManager:
         # 初始化account_id字段为空字符串
         account_id = ""
         
-        # 如果是更新现有账号，检查名称是否变更
-        if hasattr(self, 'current_account_id') and self.current_account_id is not None:
-            # 如果修改现有账号，检查名称是否变更
-            old_name = self.accounts[self.current_account_id].get("name", "")
-            # 如果名称没有变化，保留原来的account_id值
-            if old_name == name:
-                account_id = self.accounts[self.current_account_id].get("account_id", "")
-                print(f"账号名称未变更，保留原有account_id: {account_id}")
-            else:
-                print(f"账号名称已变更: {old_name} -> {name}，清空account_id")
-        
+        # 创建基本账号信息
         account = {
             "name": name,
             "password": self.password_var.get(),
@@ -969,11 +959,65 @@ class AccountManager:
             "account_id": account_id
         }
         
+        # 如果是更新现有账号
         if hasattr(self, 'current_account_id') and self.current_account_id is not None:
+            # 获取原账号
+            old_account = self.accounts[self.current_account_id]
+            
+            # 检查名称是否变更
+            old_name = old_account.get("name", "")
+            # 如果名称没有变化，保留原来的account_id值
+            if old_name == name:
+                account["account_id"] = old_account.get("account_id", "")
+                print(f"账号名称未变更，保留原有account_id: {account['account_id']}")
+            else:
+                print(f"账号名称已变更: {old_name} -> {name}，清空account_id")
+            
+            # 处理TPP段位分数
+            old_tpp_rank = old_account.get("tpp_rank", "未定级")
+            new_tpp_rank = account["tpp_rank"]
+            
+            if old_tpp_rank == new_tpp_rank:
+                # 如果段位没变，保留原分数
+                account["tpp_rank_point"] = old_account.get("tpp_rank_point", 0)
+                print(f"TPP段位未变更，保留原分数: {account['tpp_rank_point']}")
+            else:
+                # 段位变更，分数设为0
+                account["tpp_rank_point"] = 0
+                print(f"TPP段位已变更: {old_tpp_rank} -> {new_tpp_rank}，分数重置为0")
+            
+            # 处理FPP段位分数
+            old_fpp_rank = old_account.get("fpp_rank", "未定级")
+            new_fpp_rank = account["fpp_rank"]
+            
+            if old_fpp_rank == new_fpp_rank:
+                # 如果段位没变，保留原分数
+                account["fpp_rank_point"] = old_account.get("fpp_rank_point", 0)
+                print(f"FPP段位未变更，保留原分数: {account['fpp_rank_point']}")
+            else:
+                # 段位变更，分数设为0
+                account["fpp_rank_point"] = 0
+                print(f"FPP段位已变更: {old_fpp_rank} -> {new_fpp_rank}，分数重置为0")
+            
+            # 保留赛季字段
+            if "season" in old_account:
+                account["season"] = old_account["season"]
+                
             # 更新现有账号
             self.accounts[self.current_account_id] = account
         else:
             # 添加新账号
+            # 如果是第一个账号，添加当前赛季值
+            if len(self.accounts) == 0 and self.season_var.get():
+                try:
+                    account["season"] = int(self.season_var.get())
+                except ValueError:
+                    pass
+                
+            # 初始化段位分数为0
+            account["tpp_rank_point"] = 0
+            account["fpp_rank_point"] = 0
+            
             # 如果未排序状态，新账号添加到列表顶部
             if not self.sort_column:
                 self.accounts.insert(0, account)
