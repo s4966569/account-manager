@@ -150,16 +150,27 @@ class AccountManager:
                     self.accounts = json.load(f)
                 print(f"已加载 {len(self.accounts)} 个账号")
                 
-                # 确保每个账号都有level字段和account_id字段
+                # 确保每个账号都有必要的字段
                 for account in self.accounts:
                     if "level" not in account:
                         account["level"] = 0
                     if "account_id" not in account:
                         account["account_id"] = ""
+                    # 确保有rank分数字段
+                    if "tpp_rank_point" not in account:
+                        account["tpp_rank_point"] = 0
+                    if "fpp_rank_point" not in account:
+                        account["fpp_rank_point"] = 0
+                    # 确保有段位字段
+                    if "tpp_rank" not in account:
+                        account["tpp_rank"] = "未定级"
+                    if "fpp_rank" not in account:
+                        account["fpp_rank"] = "未定级"
+                        
             except Exception as e:
                 print(f"加载账号数据出错: {str(e)}")
                 self.accounts = []
-                
+    
     def load_accounts(self):
         """从文件加载账号数据并检查状态"""
         self.load_accounts_only()
@@ -240,14 +251,26 @@ class AccountManager:
             if "level" in account and account["level"] > 0:
                 level_display = str(account["level"])
             
+            # 构建TPP段位显示，结合段位和分数
+            tpp_rank_display = account.get("tpp_rank", "未定级")
+            tpp_rank_point = account.get("tpp_rank_point", 0)
+            if tpp_rank_display != "未定级" and tpp_rank_point > 0:
+                tpp_rank_display = f"{tpp_rank_display}({tpp_rank_point})"
+            
+            # 构建FPP段位显示，结合段位和分数
+            fpp_rank_display = account.get("fpp_rank", "未定级")
+            fpp_rank_point = account.get("fpp_rank_point", 0)
+            if fpp_rank_display != "未定级" and fpp_rank_point > 0:
+                fpp_rank_display = f"{fpp_rank_display}({fpp_rank_point})"
+            
             # 更新表项
             self.tree.item(item_id, values=(
                 idx + 1,
                 str(account["name"]),
                 str(account.get("note", "")),
                 level_display,  # 没有等级或等级为0时显示为空
-                str(account["fpp_rank"]),
-                str(account["tpp_rank"]),
+                fpp_rank_display,  # 使用组合的FPP段位显示
+                tpp_rank_display,  # 使用组合的TPP段位显示
                 status,
                 unban_time_display,
                 str(account.get("extended_ban", "")),
@@ -1022,10 +1045,36 @@ class AccountManager:
         
         if self.sort_column:
             # 如果有排序列，则根据排序列排序
-            if self.sort_column == "tpp_rank" or self.sort_column == "fpp_rank":
-                # 按段位排序（使用预设的段位序列）
+            if self.sort_column == "tpp_rank":
+                # 按TPP段位排序
+                def tpp_rank_key(account):
+                    # 获取段位名称
+                    basic_rank = account.get("tpp_rank", "未定级")
+                    
+                    # 首先按段位级别排序
+                    rank_level = self.rank_map.get(basic_rank, 0)
+                    # 如果段位相同，则按分数排序
+                    rank_point = account.get("tpp_rank_point", 0)
+                    return (rank_level, -rank_point)  # 分数高的排前面，所以用负值
+                
                 sorted_accounts.sort(
-                    key=lambda x: self.rank_map.get(x[self.sort_column], 0),
+                    key=tpp_rank_key,
+                    reverse=self.sort_reverse
+                )
+            elif self.sort_column == "fpp_rank":
+                # 按FPP段位排序
+                def fpp_rank_key(account):
+                    # 获取段位名称
+                    basic_rank = account.get("fpp_rank", "未定级")
+                    
+                    # 首先按段位级别排序
+                    rank_level = self.rank_map.get(basic_rank, 0)
+                    # 如果段位相同，则按分数排序
+                    rank_point = account.get("fpp_rank_point", 0)
+                    return (rank_level, -rank_point)  # 分数高的排前面，所以用负值
+                
+                sorted_accounts.sort(
+                    key=fpp_rank_key,
                     reverse=self.sort_reverse
                 )
             elif self.sort_column == "status":
@@ -1092,20 +1141,35 @@ class AccountManager:
                 except:
                     unban_time_display = account["unban_time"]
             
+            # 构建TPP段位显示，结合段位和分数
+            tpp_rank_display = account.get("tpp_rank", "未定级")
+            tpp_rank_point = account.get("tpp_rank_point", 0)
+            if tpp_rank_display != "未定级" and tpp_rank_point > 0:
+                tpp_rank_display = f"{tpp_rank_display}({tpp_rank_point})"
+            
+            # 构建FPP段位显示，结合段位和分数
+            fpp_rank_display = account.get("fpp_rank", "未定级")
+            fpp_rank_point = account.get("fpp_rank_point", 0)
+            if fpp_rank_display != "未定级" and fpp_rank_point > 0:
+                fpp_rank_display = f"{fpp_rank_display}({fpp_rank_point})"
+            
             # 插入数据的顺序需要与列顺序一致
             self.tree.insert("", "end", values=(
                 i + 1,  # 序号从1开始
                 str(account["name"]),
                 str(note),
                 level_display,  # 等级列，没有值时为空
-                str(account["fpp_rank"]),
-                str(account["tpp_rank"]),
+                fpp_rank_display,  # 使用组合的FPP段位显示
+                tpp_rank_display,  # 使用组合的TPP段位显示
                 status,
                 unban_time_display,
                 str(extended_ban),  # 追封列
                 str(account["phone"]),
                 str(account_id)
             ))
+        
+        # 更新统计信息
+        self.update_stats_info()
     
     def on_account_selected(self, event):
         """选中账号时的处理"""
@@ -1556,7 +1620,7 @@ class AccountManager:
         accounts_with_level = sum(1 for account in self.accounts if account.get("level", 0) > 0)
         
         # 更新统计信息文本
-        stats_text = f"账号列表 (共{total_accounts}个账号，封禁中{banned_accounts}个，未封禁{unbanned_accounts}个，追封{extended_bans}个，有等级{accounts_with_level}个)"
+        stats_text = f"账号列表 (共{total_accounts}个账号，封禁中{banned_accounts}个，未封禁{unbanned_accounts}个，追封{extended_bans}个)"
         self.list_frame.configure(text=stats_text)
     
     def refresh_ban_status(self):
@@ -1710,18 +1774,36 @@ class AccountManager:
                     sub_tier = tpp_rank["subTier"]
                     rank_point = tpp_rank["rankPoint"]
                     
-                    # 更新TPP段位格式: 黄金4(2165)
-                    tpp_rank_display = f"{tier_name}{sub_tier}({rank_point})"
+                    # 保存rank分数到独立字段
+                    account["tpp_rank_point"] = rank_point
                     
+                    # 只保存基础段位格式: 黄金4
+                    tpp_rank_display = f"{tier_name}{sub_tier}"
+                    
+                    # 检查是否需要更新
+                    update_needed = False
                     if account.get("tpp_rank") != tpp_rank_display:
+                        update_needed = True
+                    if account.get("tpp_rank_point") != rank_point:
+                        update_needed = True
+                    
+                    if update_needed:
                         account["tpp_rank"] = tpp_rank_display
-                        print(f"账号 {account_name} TPP段位已更新: {tpp_rank_display}")
+                        print(f"账号 {account_name} TPP段位已更新: {tpp_rank_display}({rank_point})")
                         ranks_updated = True
                 else:
                     # 如果没有获取到段位，直接设置为未定级
-                    account["tpp_rank"] = "未定级"
-                    print(f"账号 {account_name} TPP段位已更新为: 未定级")
-                    ranks_updated = True
+                    update_needed = False
+                    if account.get("tpp_rank") != "未定级":
+                        update_needed = True
+                    if account.get("tpp_rank_point", 0) != 0:
+                        update_needed = True
+                        
+                    if update_needed:
+                        account["tpp_rank"] = "未定级"
+                        account["tpp_rank_point"] = 0
+                        print(f"账号 {account_name} TPP段位已更新为: 未定级")
+                        ranks_updated = True
                 
                 # 更新FPP段位信息
                 if fpp_rank:
@@ -1739,18 +1821,36 @@ class AccountManager:
                     sub_tier = fpp_rank["subTier"]
                     rank_point = fpp_rank["rankPoint"]
                     
-                    # 更新FPP段位格式: 铂金5(2523)
-                    fpp_rank_display = f"{tier_name}{sub_tier}({rank_point})"
+                    # 保存rank分数到独立字段
+                    account["fpp_rank_point"] = rank_point
                     
+                    # 只保存基础段位格式: 铂金5
+                    fpp_rank_display = f"{tier_name}{sub_tier}"
+                    
+                    # 检查是否需要更新
+                    update_needed = False
                     if account.get("fpp_rank") != fpp_rank_display:
+                        update_needed = True
+                    if account.get("fpp_rank_point") != rank_point:
+                        update_needed = True
+                    
+                    if update_needed:
                         account["fpp_rank"] = fpp_rank_display
-                        print(f"账号 {account_name} FPP段位已更新: {fpp_rank_display}")
+                        print(f"账号 {account_name} FPP段位已更新: {fpp_rank_display}({rank_point})")
                         ranks_updated = True
                 else:
                     # 如果没有获取到段位，直接设置为未定级
-                    account["fpp_rank"] = "未定级"
-                    print(f"账号 {account_name} FPP段位已更新为: 未定级")
-                    ranks_updated = True
+                    update_needed = False
+                    if account.get("fpp_rank") != "未定级":
+                        update_needed = True
+                    if account.get("fpp_rank_point", 0) != 0:
+                        update_needed = True
+                    
+                    if update_needed:
+                        account["fpp_rank"] = "未定级"
+                        account["fpp_rank_point"] = 0
+                        print(f"账号 {account_name} FPP段位已更新为: 未定级")
+                        ranks_updated = True
                 
                 # 在UI中更新显示
                 self.root.after(0, lambda i=idx: self.update_single_account_ui(i))
