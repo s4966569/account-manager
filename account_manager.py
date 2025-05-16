@@ -500,8 +500,6 @@ class AccountManager:
         ttk.Label(self.root, text="游戏赛季:").place(x=700, y=5)
         season_entry = ttk.Entry(self.root, textvariable=self.season_var, width=5)
         season_entry.place(x=760, y=2)
-        # 绑定输入框失去焦点事件，自动保存赛季值
-        season_entry.bind("<FocusOut>", lambda event: self.update_season())
         # 绑定回车键事件，使按回车键时触发update_season并将焦点转移到主窗口
         season_entry.bind("<Return>", lambda event: [self.update_season(), self.root.focus_set()])
         
