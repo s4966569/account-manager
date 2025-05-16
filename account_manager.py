@@ -1610,6 +1610,7 @@ class AccountManager:
                 if tpp_rank:
                     # 转换段位名称
                     tier_name_map = {
+                        "Bronze": "青铜",
                         "Silver": "白银",
                         "Gold": "黄金",
                         "Platinum": "铂金",
@@ -1638,6 +1639,7 @@ class AccountManager:
                 if fpp_rank:
                     # 转换段位名称
                     tier_name_map = {
+                        "Bronze": "青铜",
                         "Silver": "白银",
                         "Gold": "黄金",
                         "Platinum": "铂金",
