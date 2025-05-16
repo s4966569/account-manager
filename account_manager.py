@@ -29,6 +29,9 @@ class AccountManager:
         self.status_var = tk.StringVar()
         self.status_message = tk.StringVar()
         
+        # 初始化赛季变量
+        self.season_var = tk.StringVar(value="35")  # 默认赛季为35
+        
         # 账号数据
         self.accounts = []
         
@@ -68,6 +71,9 @@ class AccountManager:
         # 仅加载账号数据，不执行检查
         self.load_accounts_only()
         
+        # 初始化赛季值
+        self.initialize_season()
+        
         # 创建界面
         self.create_widgets()
         
@@ -79,6 +85,62 @@ class AccountManager:
         
         # 在界面显示后延迟启动后台检查任务
         self.root.after(1000, self.start_background_check)
+    
+    def initialize_season(self):
+        """初始化赛季值，从第一个账户读取season字段"""
+        if self.accounts and len(self.accounts) > 0:
+            # 检查第一个账户是否有season字段
+            if "season" in self.accounts[0]:
+                season_num = self.accounts[0]["season"]
+                print(f"从accounts.json中读取赛季: {season_num}")
+                # 将赛季值设置到season_var（如果已初始化）
+                if hasattr(self, 'season_var'):
+                    self.season_var.set(str(season_num))
+            else:
+                # 没有找到season字段，写入默认值
+                self.accounts[0]["season"] = 35
+                self.save_accounts()
+    
+    def update_season(self):
+        """更新游戏赛季并保存到第一个账户中"""
+        try:
+            # 获取输入框当前值
+            season_input = self.season_var.get().strip()
+            
+            # 如果为空，则不进行任何操作
+            if not season_input:
+                return
+                
+            # 尝试转换为整数
+            season_value = int(season_input)
+            
+            # 确保有至少一个账户
+            if not self.accounts or len(self.accounts) == 0:
+                messagebox.showwarning("警告", "没有账户，无法保存赛季值")
+                return
+                
+            # 如果与当前值相同，则不操作
+            if "season" in self.accounts[0] and self.accounts[0]["season"] == season_value:
+                return
+                
+            # 更新第一个账户的season字段
+            self.accounts[0]["season"] = season_value
+            
+            # 保存到文件
+            if self.save_accounts():
+                self.status_message.set(f"赛季已更新为: {season_value}")
+                # 更新界面上的赛季显示
+                self.season_var.set(str(season_value))
+                self.root.after(3000, lambda: self.status_message.set(""))
+        except ValueError:
+            # 如果不是有效数字，恢复为原有值
+            if self.accounts and len(self.accounts) > 0 and "season" in self.accounts[0]:
+                self.season_var.set(str(self.accounts[0]["season"]))
+            else:
+                self.season_var.set("35")  # 默认值
+            messagebox.showerror("错误", "请输入有效的赛季数字")
+        except Exception as e:
+            messagebox.showerror("错误", f"更新赛季失败: {str(e)}")
     
     def load_accounts_only(self):
         """仅从文件加载账号数据，不执行检查"""
@@ -434,6 +496,15 @@ class AccountManager:
         self.refresh_btn = ttk.Button(self.root, text="刷新状态", command=self.refresh_ban_status, width=10)
         self.refresh_btn.place(x=550, y=0)
         
+        # 添加游戏赛季控件（位于刷新状态按钮后面）
+        ttk.Label(self.root, text="游戏赛季:").place(x=700, y=5)
+        season_entry = ttk.Entry(self.root, textvariable=self.season_var, width=5)
+        season_entry.place(x=760, y=2)
+        # 绑定输入框失去焦点事件，自动保存赛季值
+        season_entry.bind("<FocusOut>", lambda event: self.update_season())
+        # 绑定回车键事件，使按回车键时触发update_season并将焦点转移到主窗口
+        season_entry.bind("<Return>", lambda event: [self.update_season(), self.root.focus_set()])
+        
         # 创建状态栏
         status_bar = ttk.Label(self.root, textvariable=self.status_message, relief=tk.SUNKEN, anchor=tk.W)
         status_bar.pack(side=tk.BOTTOM, fill=tk.X)
@@ -670,10 +741,12 @@ class AccountManager:
         # 清空备注文本框
         self.note_text.delete("1.0", tk.END)
         
+        # 注意：不清空赛季值，保持当前设置
+        
         # 取消选择
         if self.tree.selection():
             self.tree.selection_remove(self.tree.selection()[0])
-            
+    
     def on_unban_time_changed(self, *args):
         """当解封时间手动修改时触发"""
         # 只有在封禁状态时才执行
@@ -1103,6 +1176,10 @@ class AccountManager:
                 else:
                     self.ban_duration_var.set("24小时")
                 
+                # 确保season_var已更新为当前设置的赛季值（从第一个账户读取）
+                if self.accounts and len(self.accounts) > 0 and "season" in self.accounts[0]:
+                    self.season_var.set(str(self.accounts[0]["season"]))
+                
                 break
                 
         # 更新"追3天"按钮状态
@@ -1517,8 +1594,21 @@ class AccountManager:
             print("账号没有account_id，无法查询段位")
             return False, None, None
             
-        # 当前赛季
-        season = "division.bro.official.pc-2018-35"
+        # 从第一个账户读取season字段，如果不存在则使用默认值35
+        season_num = 35  # 默认赛季
+        if self.accounts and len(self.accounts) > 0:
+            # 检查第一个账户是否有season字段
+            if "season" in self.accounts[0]:
+                season_num = self.accounts[0]["season"]
+                print(f"从accounts.json中读取赛季: {season_num}")
+            else:
+                # 没有找到season字段，写入默认值
+                self.accounts[0]["season"] = season_num
+                print(f"accounts.json中未找到season字段，写入默认值: {season_num}")
+                self.save_accounts()
+        
+        # 构建season参数字符串
+        season = f"division.bro.official.pc-2018-{season_num}"
         url = f"https://apiv1.pubg.plus/steam/player/season_r?acc_id={account_id}&season={season}"
         print(f"正在请求段位API: {url}")
         
