@@ -267,7 +267,6 @@ class AccountManager:
             self.tree.item(item_id, values=(
                 idx + 1,
                 str(account["name"]),
-                str(account.get("note", "")),
                 level_display,  # 没有等级或等级为0时显示为空
                 fpp_rank_display,  # 使用组合的FPP段位显示
                 tpp_rank_display,  # 使用组合的TPP段位显示
@@ -275,7 +274,8 @@ class AccountManager:
                 unban_time_display,
                 str(account.get("extended_ban", "")),
                 str(account["phone"]),
-                str(account.get("id", ""))
+                str(account.get("id", "")),
+                str(account.get("note", ""))
             ))
             
             # 更新统计信息
@@ -536,8 +536,8 @@ class AccountManager:
         self.list_frame = ttk.LabelFrame(self.root, text="账号列表")
         self.list_frame.place(x=10, y=10, width=950, height=680)  # 增加高度
         
-        # 创建Treeview - 添加level列在note后面
-        columns = ("number", "name", "note", "level", "fpp_rank", "tpp_rank", "status", "unban_time", "extended_ban", "phone", "id")
+        # 创建Treeview - 将note列移到id列后面
+        columns = ("number", "name", "level", "fpp_rank", "tpp_rank", "status", "unban_time", "extended_ban", "phone", "id", "note")
         self.tree = ttk.Treeview(self.list_frame, columns=columns, show="headings", selectmode="browse")
         
         # 配置高亮样式
@@ -546,7 +546,6 @@ class AccountManager:
         # 设置列标题，重新添加排序功能
         self.tree.heading("number", text="序号")
         self.tree.heading("name", text="账号名称")
-        self.tree.heading("note", text="备注")  # 移除点击排序命令
         self.tree.heading("level", text="等级", command=lambda: self.force_sort("level"))  # 添加等级列
         self.tree.heading("fpp_rank", text="FPP段位", command=lambda: self.force_sort("fpp_rank"))
         self.tree.heading("tpp_rank", text="TPP段位", command=lambda: self.force_sort("tpp_rank"))
@@ -555,19 +554,20 @@ class AccountManager:
         self.tree.heading("extended_ban", text="追封")
         self.tree.heading("phone", text="ARS", command=lambda: self.force_sort("phone"))
         self.tree.heading("id", text="ID")
+        self.tree.heading("note", text="备注")  # 移除点击排序命令
         
         # 调整列宽以适应表格总宽度
         self.tree.column("number", width=40)  # 序号列窄一些
         self.tree.column("name", width=100)
-        self.tree.column("note", width=140)  # 略微减小备注列宽度
         self.tree.column("level", width=50)  # 等级列宽
         self.tree.column("fpp_rank", width=80)
         self.tree.column("tpp_rank", width=80)
         self.tree.column("status", width=60)
-        self.tree.column("unban_time", width=135)
+        self.tree.column("unban_time", width=85)
         self.tree.column("extended_ban", width=60)  # 追封列宽
-        self.tree.column("phone", width=90)  # 略微减小ARS列宽度
-        self.tree.column("id", width=75)  # 略微减小ID列宽
+        self.tree.column("phone", width=100)  # 略微减小ARS列宽度
+        self.tree.column("id", width=110)  # 略微减小ID列宽
+        self.tree.column("note", width=145)  # 略微减小备注列宽度
         
         # 添加滚动条
         scrollbar = ttk.Scrollbar(self.list_frame, orient="vertical", command=self.tree.yview)
@@ -1157,7 +1157,6 @@ class AccountManager:
             self.tree.insert("", "end", values=(
                 i + 1,  # 序号从1开始
                 str(account["name"]),
-                str(note),
                 level_display,  # 等级列，没有值时为空
                 fpp_rank_display,  # 使用组合的FPP段位显示
                 tpp_rank_display,  # 使用组合的TPP段位显示
@@ -1165,7 +1164,8 @@ class AccountManager:
                 unban_time_display,
                 str(extended_ban),  # 追封列
                 str(account["phone"]),
-                str(account_id)
+                str(account_id),
+                str(note)
             ))
         
         # 更新统计信息
