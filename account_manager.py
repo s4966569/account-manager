@@ -475,8 +475,8 @@ class AccountManager:
             
             # 添加延迟以避免API请求过快
             if account.get("id"):
-                print(f"添加2秒延迟，避免API请求过快")
-                time.sleep(2)
+                print(f"添加50ms延迟，避免API请求过快")
+                time.sleep(0.05)
         
         print(f"所有账号处理完毕，共进行了{api_calls_count}次API调用，状态更新: {status_updated}，account_id更新: {account_id_updated}")
         
@@ -1573,6 +1573,8 @@ class AccountManager:
         通过网络接口查询账号的封禁状态
         返回: (是否封禁, 是否查询成功, 玩家等级, account_id)
         """
+        # api服务目前有问题，注释掉实际API调用，直接返回未封禁状态
+        return False, False, 0, None
         if not player_id:
             return False, False, 0, None
             
