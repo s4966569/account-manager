@@ -287,12 +287,15 @@ class AccountManager:
         account: 账号对象
         返回: 是否有更新
         """
-        # 如果账号没有ID，不进行检查
-        if not account.get("id"):
+        # 优先使用account_id，如果没有则使用id
+        player_id = account.get("account_id") or account.get("id")
+        
+        # 如果两个ID都没有，不进行检查
+        if not player_id:
             return False
             
         # 查询网络接口
-        is_banned, success, player_level, account_id = self.check_ban_status_online(account["id"])
+        is_banned, success, player_level, account_id = self.check_ban_status_online(player_id)
         
         # 如果返回了有效的account_id，保存到账号对象
         if account_id:
