@@ -281,11 +281,93 @@ class AccountManager:
             # 更新统计信息
             self.update_stats_info()
     
+    def check_ban_real(self, account):
+        """
+        检查账号的真实封禁状态
+        account: 账号对象
+        返回: 是否有更新
+        """
+        # 如果账号没有ID，不进行检查
+        if not account.get("id"):
+            return False
+            
+        # 查询网络接口
+        is_banned, success, player_level, account_id = self.check_ban_status_online(account["id"])
+        
+        # 如果返回了有效的account_id，保存到账号对象
+        if account_id:
+            account["account_id"] = account_id
+            print(f"账号 {account.get('name', 'unknown')} 的account_id已更新: {account_id}")
+        
+        # 更新账号的等级信息(无论查询封禁状态是否成功)
+        level_updated = False
+        if player_level > 0:
+            if account.get("level", 0) != player_level:
+                account["level"] = player_level
+                level_updated = True
+                print(f"账号 {account.get('name', 'unknown')} 等级已更新: {player_level}")
+        elif player_level == 0 and "level" in account:
+            # 如果API返回0但账号已有等级值，保留原有等级
+            pass
+        
+        # 如果查询失败，仅返回等级更新状态
+        if not success:
+            return level_updated
+            
+        # 如果查询成功且账号当前状态与API状态不一致，或者仅更新了等级信息
+        status_changed = account["status"] != is_banned
+        if status_changed:
+            account_name = account.get('name', '未命名')
+            if is_banned:  # API显示已封禁，但本地状态是未封禁
+                # 更新为封禁状态
+                account["status"] = True
+                
+                # 检查当前是否有解封时间记录
+                if not account.get("unban_time") or not account["unban_time"]:
+                    # 没有解封时间记录，设置为24小时封禁
+                    account["extended_ban"] = ""  # 不是追封，是新封禁
+                    now = datetime.datetime.now()
+                    unban_time = now + datetime.timedelta(hours=24)
+                    account["unban_time"] = unban_time.strftime("%Y-%m-%d %H:%M:%S")
+                    print(f"账号 {account_name} 被检测到封禁，已设置为封禁24小时")
+                else:
+                    # 有解封时间记录，视为追封
+                    try:
+                        # 尝试解析当前解封时间
+                        current_unban_time = datetime.datetime.strptime(account["unban_time"], "%Y-%m-%d %H:%M:%S")
+                        # 检查解封时间是否已过期
+                        now = datetime.datetime.now()
+                        
+                        # 解封时间未过期，在原解封时间基础上+2天
+                        account["extended_ban"] = "追3天"
+                        new_unban_time = current_unban_time + datetime.timedelta(days=2)
+                        account["unban_time"] = new_unban_time.strftime("%Y-%m-%d %H:%M:%S")
+                        print(f"账号 {account_name} 被检测到追封，已延长封禁时间2天")
+                    except:
+                        # 解析失败，从当前时间开始计算24小时
+                        account["extended_ban"] = ""  # 解析失败不作为追封
+                        now = datetime.datetime.now()
+                        unban_time = now + datetime.timedelta(hours=24)
+                        account["unban_time"] = unban_time.strftime("%Y-%m-%d %H:%M:%S")
+                        print(f"账号 {account_name} 解封时间格式无效，重置为封禁24小时")
+            else:  # API显示未封禁，但本地状态是封禁
+                # 更新为未封禁状态
+                account["status"] = False
+                account["unban_time"] = ""
+                account["extended_ban"] = ""
+                print(f"账号 {account_name} 已确认解封")
+                
+            return True  # 状态有更新
+            
+        return level_updated  # 如果状态未更新，返回是否有等级更新
+    
     def update_ban_status(self):
         """检查并更新账号的封禁状态，返回是否有更新"""
         print("开始执行update_ban_status()，准备检查所有账号状态...")
         current_time = datetime.datetime.now()
         status_updated = False
+        api_calls_count = 0
+        account_id_updated = False  # 添加标志，记录是否有account_id更新
         
         for idx, account in enumerate(self.accounts):
             account_name = account.get('name', '未命名')
@@ -302,40 +384,104 @@ class AccountManager:
             # 为每个账号初始化account_id字段（如果不存在）
             if "account_id" not in account:
                 account["account_id"] = ""
-                
-            # 检查本地封禁时间
+                account_id_updated = True
+            
+            # 首先检查本地封禁时间
+            local_ban_expired = False
             if account["status"] and account["unban_time"]:
                 print(f"账号 {account_name} 目前为封禁状态，解封时间: {account['unban_time']}")
                 try:
                     # 检查解封时间是否已过期
                     unban_time = datetime.datetime.strptime(account["unban_time"], "%Y-%m-%d %H:%M:%S")
                     if current_time >= unban_time:
-                        print(f"账号 {account_name} 本地解封时间已过期，设置为未封禁")
-                        # 设置为未封禁状态
-                        account["status"] = False
-                        account["unban_time"] = ""
-                        account["extended_ban"] = ""
-                        status_updated = True
-                        
-                        # 在主线程中更新UI显示
-                        self.root.after(0, lambda i=idx: self.update_single_account_ui(i))
+                        print(f"账号 {account_name} 本地解封时间已过期")
+                        local_ban_expired = True
                 except Exception as e:
                     print(f"处理账号 {account_name} 解封时间时发生异常: {str(e)}")
-                    # 日期格式无效，设置为未封禁
+                    # 日期格式无效，标记为过期以重新判断
+                    local_ban_expired = True
+            else:
+                print(f"账号 {account_name} 目前为正常状态或无解封时间")
+                
+            # 对于每个有ID的账号，都调用API检查真实封禁状态
+            if account.get("id"):
+                print(f"账号 {account_name} ID: {account['id']}，正在查询API确认真实状态")
+                
+                # 准备用于API检查的账号对象
+                check_account = account.copy()
+                
+                # 如果本地封禁已过期，在检查前将状态临时设为未封禁
+                if local_ban_expired:
+                    print(f"本地封禁已过期，临时标记为未封禁以进行API检查")
+                    check_account["status"] = False
+                
+                # 进行API检查
+                api_calls_count += 1
+                account_updated = self.check_ban_real(check_account)
+                
+                # 同步等级数据（无论状态是否变化）
+                if "level" in check_account and check_account.get("level", 0) > 0:
+                    if account.get("level", 0) != check_account["level"]:
+                        account["level"] = check_account["level"]
+                        print(f"账号 {account_name} 等级已更新: {check_account['level']}")
+                        # 无论状态是否变化，只要等级变化就更新UI
+                        self.root.after(0, lambda i=idx: self.update_single_account_ui(i))
+                        status_updated = True  # 标记为有更新，会触发保存
+                
+                # 同步account_id数据（无论状态是否变化）
+                if "account_id" in check_account and check_account.get("account_id"):
+                    old_account_id = account.get("account_id", "")
+                    new_account_id = check_account.get("account_id", "")
+                    if old_account_id != new_account_id:
+                        account["account_id"] = new_account_id
+                        print(f"同步账号 {account_name} 的account_id从 {old_account_id} 到 {new_account_id}")
+                        account_id_updated = True
+                
+                if account_updated:
+                    # API检查导致状态变化，更新原账号
+                    old_status = account["status"]
+                    account["status"] = check_account["status"]
+                    account["unban_time"] = check_account["unban_time"]
+                    account["extended_ban"] = check_account["extended_ban"]
+                    status_updated = True
+                    print(f"账号 {account_name} API检查后状态已更新: {'已封禁' if account['status'] else '未封禁'}")
+                    
+                    # 在主线程中更新UI显示
+                    self.root.after(0, lambda i=idx: self.update_single_account_ui(i))
+                elif local_ban_expired:
+                    # API检查无更新但本地封禁已过期，设为未封禁
+                    old_status = account["status"]
                     account["status"] = False
                     account["unban_time"] = ""
                     account["extended_ban"] = ""
                     status_updated = True
+                    print(f"账号 {account_name} API未检测到封禁且本地封禁已过期，设为未封禁")
                     
                     # 在主线程中更新UI显示
                     self.root.after(0, lambda i=idx: self.update_single_account_ui(i))
             else:
-                print(f"账号 {account_name} 目前为正常状态或无解封时间")
+                print(f"账号 {account_name} 无ID，仅根据本地时间判断")
+                # 无ID账号，只能根据本地时间判断
+                if local_ban_expired:
+                    old_status = account["status"]
+                    account["status"] = False
+                    account["unban_time"] = ""
+                    account["extended_ban"] = ""
+                    status_updated = True
+                    print(f"账号 {account_name} 无ID且本地封禁已过期，设为未封禁")
+                    
+                    # 在主线程中更新UI显示
+                    self.root.after(0, lambda i=idx: self.update_single_account_ui(i))
+            
+            # 添加延迟以避免API请求过快
+            if account.get("id"):
+                print(f"添加50ms延迟，避免API请求过快")
+                time.sleep(0.05)
         
-        print(f"所有账号处理完毕，状态更新: {status_updated}")
+        print(f"所有账号处理完毕，共进行了{api_calls_count}次API调用，状态更新: {status_updated}，account_id更新: {account_id_updated}")
         
-        # 如果有状态更新，保存到文件
-        if status_updated:
+        # 如果有状态更新或account_id更新，保存到文件
+        if status_updated or account_id_updated:
             self.save_accounts()
             
         return status_updated
@@ -1420,6 +1566,96 @@ class AccountManager:
                 self.duration_radios["追3天"].configure(state="disabled")
             except:
                 pass
+
+    # 添加网络请求功能来查询封禁状态
+    def check_ban_status_online(self, player_id):
+        """
+        通过网络接口查询账号的封禁状态
+        返回: (是否封禁, 是否查询成功, 玩家等级, account_id)
+        """
+        # api服务目前有问题，注释掉实际API调用，直接返回未封禁状态
+        return False, False, 0, None
+        if not player_id:
+            return False, False, 0, None
+            
+        try:
+            # 调用独立的API查询函数
+            return self.query_ban_api(player_id)
+        except Exception as e:
+            print(f"查询封禁状态出错: {str(e)}")
+            return False, False, 0, None
+            
+    def query_ban_api(self, player_id):
+        """
+        独立的API查询函数，以便于未来更换API时只需修改此函数
+        返回: (是否封禁, 是否查询成功, 玩家等级, account_id)
+        """
+        url = f"https://apiv1.pubg.plus/steam/player/banv2?player_id={player_id}"
+        print(f"正在请求API: {url}")
+        try:
+            # 打印详细的请求信息
+            print(f"开始查询玩家 {player_id} 的封禁状态...")
+            
+            # 添加请求头，模拟浏览器
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            
+            response = requests.get(url, headers=headers, timeout=10)  # 增加超时时间到10秒
+            print(f"API响应状态码: {response.status_code}")
+            
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    # 调试用，只打印部分数据，避免数据过大
+                    if "player" in data:
+                        player_info = data["player"].copy()
+                        if "matches" in data:
+                            data_debug = data.copy()
+                            data_debug["matches"] = f"[{len(data['matches'])} matches]"
+                            print(f"API返回数据: {data_debug}")
+                        else:
+                            print(f"API返回数据: {data}")
+                    else:
+                        print(f"API返回数据: {data}")
+                    
+                    # 初始化等级为0和account_id为None
+                    player_level = 0
+                    account_id = None
+                    
+                    # 获取API返回的account_id
+                    if "player" in data and "id" in data["player"]:
+                        account_id = data["player"]["id"]
+                        print(f"从API获取到account_id: {account_id}")
+                    
+                    # 如果有player信息，计算等级
+                    if "player" in data and "tier" in data["player"] and "level" in data["player"]:
+                        tier = data["player"]["tier"]
+                        level = data["player"]["level"]
+                        # 根据规则计算等级: (tier-1)*500+level
+                        player_level = (tier - 1) * 500 + level
+                        print(f"玩家等级信息: tier={tier}, level={level}, 计算后等级={player_level}")
+                    
+                    if "ban" in data and "banType" in data["ban"]:
+                        # 检查封禁状态: TemporaryBan表示封禁，Innocent表示未封禁
+                        ban_type = data["ban"]["banType"]
+                        is_banned = ban_type == "TemporaryBan"
+                        print(f"账号 {player_id} 查询结果: ban_type={ban_type}, {'已封禁' if is_banned else '未封禁'}")
+                        return is_banned, True, player_level, account_id
+                    else:
+                        print(f"API返回数据格式错误，缺少预期字段: {data}")
+                except Exception as e:
+                    print(f"解析API响应JSON出错: {str(e)}")
+                    print(f"原始响应内容: {response.text[:500]}...") # 只打印前500个字符
+            else:
+                print(f"API请求失败，状态码: {response.status_code}")
+                print(f"响应内容: {response.text[:500]}...") # 只打印前500个字符
+        except Exception as e:
+            print(f"API请求异常: {str(e)}")
+            import traceback
+            traceback.print_exc()  # 打印详细的异常堆栈信息
+            
+        return False, False, 0, None
 
     def update_stats_info(self):
         """更新统计信息"""
