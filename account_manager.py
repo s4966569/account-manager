@@ -83,7 +83,7 @@ class AccountManager:
         # 启动时打印信息
         print("程序启动完成，准备就绪。")
         
-        # 在界面显示后延迟启动后台检查任务
+        # 在界面显示后延迟启动后台检查任务，现在只执行本地时间检查
         self.root.after(1000, self.start_background_check)
     
     def initialize_season(self):
@@ -189,7 +189,7 @@ class AccountManager:
     def background_check_task(self):
         """后台线程执行账号状态检查"""
         try:
-            # 执行状态更新
+            # 执行状态更新 - 只根据本地时间判断
             updated_ban = self.update_ban_status()
             
             # 执行段位更新
@@ -366,8 +366,6 @@ class AccountManager:
         print("开始执行update_ban_status()，准备检查所有账号状态...")
         current_time = datetime.datetime.now()
         status_updated = False
-        api_calls_count = 0
-        account_id_updated = False  # 添加标志，记录是否有account_id更新
         
         for idx, account in enumerate(self.accounts):
             account_name = account.get('name', '未命名')
@@ -384,7 +382,7 @@ class AccountManager:
             # 为每个账号初始化account_id字段（如果不存在）
             if "account_id" not in account:
                 account["account_id"] = ""
-                account_id_updated = True
+                status_updated = True  # 确保初始化了新字段时会保存
             
             # 首先检查本地封禁时间
             local_ban_expired = False
@@ -403,85 +401,22 @@ class AccountManager:
             else:
                 print(f"账号 {account_name} 目前为正常状态或无解封时间")
                 
-            # 对于每个有ID的账号，都调用API检查真实封禁状态
-            if account.get("id"):
-                print(f"账号 {account_name} ID: {account['id']}，正在查询API确认真实状态")
+            # 基于本地封禁时间判断状态
+            if local_ban_expired:
+                old_status = account["status"]
+                account["status"] = False
+                account["unban_time"] = ""
+                account["extended_ban"] = ""
+                status_updated = True
+                print(f"账号 {account_name} 本地封禁已过期，设为未封禁")
                 
-                # 准备用于API检查的账号对象
-                check_account = account.copy()
-                
-                # 如果本地封禁已过期，在检查前将状态临时设为未封禁
-                if local_ban_expired:
-                    print(f"本地封禁已过期，临时标记为未封禁以进行API检查")
-                    check_account["status"] = False
-                
-                # 进行API检查
-                api_calls_count += 1
-                account_updated = self.check_ban_real(check_account)
-                
-                # 同步等级数据（无论状态是否变化）
-                if "level" in check_account and check_account.get("level", 0) > 0:
-                    if account.get("level", 0) != check_account["level"]:
-                        account["level"] = check_account["level"]
-                        print(f"账号 {account_name} 等级已更新: {check_account['level']}")
-                        # 无论状态是否变化，只要等级变化就更新UI
-                        self.root.after(0, lambda i=idx: self.update_single_account_ui(i))
-                        status_updated = True  # 标记为有更新，会触发保存
-                
-                # 同步account_id数据（无论状态是否变化）
-                if "account_id" in check_account and check_account.get("account_id"):
-                    old_account_id = account.get("account_id", "")
-                    new_account_id = check_account.get("account_id", "")
-                    if old_account_id != new_account_id:
-                        account["account_id"] = new_account_id
-                        print(f"同步账号 {account_name} 的account_id从 {old_account_id} 到 {new_account_id}")
-                        account_id_updated = True
-                
-                if account_updated:
-                    # API检查导致状态变化，更新原账号
-                    old_status = account["status"]
-                    account["status"] = check_account["status"]
-                    account["unban_time"] = check_account["unban_time"]
-                    account["extended_ban"] = check_account["extended_ban"]
-                    status_updated = True
-                    print(f"账号 {account_name} API检查后状态已更新: {'已封禁' if account['status'] else '未封禁'}")
-                    
-                    # 在主线程中更新UI显示
-                    self.root.after(0, lambda i=idx: self.update_single_account_ui(i))
-                elif local_ban_expired:
-                    # API检查无更新但本地封禁已过期，设为未封禁
-                    old_status = account["status"]
-                    account["status"] = False
-                    account["unban_time"] = ""
-                    account["extended_ban"] = ""
-                    status_updated = True
-                    print(f"账号 {account_name} API未检测到封禁且本地封禁已过期，设为未封禁")
-                    
-                    # 在主线程中更新UI显示
-                    self.root.after(0, lambda i=idx: self.update_single_account_ui(i))
-            else:
-                print(f"账号 {account_name} 无ID，仅根据本地时间判断")
-                # 无ID账号，只能根据本地时间判断
-                if local_ban_expired:
-                    old_status = account["status"]
-                    account["status"] = False
-                    account["unban_time"] = ""
-                    account["extended_ban"] = ""
-                    status_updated = True
-                    print(f"账号 {account_name} 无ID且本地封禁已过期，设为未封禁")
-                    
-                    # 在主线程中更新UI显示
-                    self.root.after(0, lambda i=idx: self.update_single_account_ui(i))
-            
-            # 添加延迟以避免API请求过快
-            if account.get("id"):
-                print(f"添加2秒延迟，避免API请求过快")
-                time.sleep(2)
+                # 在主线程中更新UI显示
+                self.root.after(0, lambda i=idx: self.update_single_account_ui(i))
         
-        print(f"所有账号处理完毕，共进行了{api_calls_count}次API调用，状态更新: {status_updated}，account_id更新: {account_id_updated}")
+        print(f"所有账号处理完毕，状态更新: {status_updated}")
         
-        # 如果有状态更新或account_id更新，保存到文件
-        if status_updated or account_id_updated:
+        # 如果有状态更新，保存到文件
+        if status_updated:
             self.save_accounts()
             
         return status_updated
@@ -578,7 +513,7 @@ class AccountManager:
         scrollbar.pack(side="right", fill="y")
         
         # 绑定双击事件以复制内容
-        self.tree.bind("<Double-1>", self.copy_cell_content)
+        self.tree.bind("<Double-1>", self.handle_double_click)
         
         # 绑定单击事件以选择账号
         self.tree.bind("<<TreeviewSelect>>", self.on_account_selected)
@@ -701,6 +636,40 @@ class AccountManager:
         ttk.Button(btn_frame, text="新建", command=self.clear_form).pack(side="left", padx=10)
         ttk.Button(btn_frame, text="保存", command=self.save_account).pack(side="left", padx=10)
         ttk.Button(btn_frame, text="删除", command=self.delete_account).pack(side="left", padx=10)
+    
+    def handle_double_click(self, event):
+        """处理双击事件，如果点击状态列则查询API，否则复制内容"""
+        # 获取点击的列和行
+        region = self.tree.identify("region", event.x, event.y)
+        if region != "cell":
+            return
+            
+        column = self.tree.identify_column(event.x)
+        column_index = int(column.replace('#', '')) - 1  # 将#1, #2等转换为0, 1等索引
+        
+        # 获取列名
+        column_name = self.tree["columns"][column_index]
+        
+        # 获取点击的行
+        item = self.tree.identify_row(event.y)
+        if not item:
+            return
+            
+        # 获取行中的值
+        values = self.tree.item(item, "values")
+        if not values or column_index >= len(values):
+            return
+            
+        # 如果点击的是状态列，执行API查询
+        if column_name == "status":
+            # 找到对应的账号索引
+            item_number = int(values[0]) - 1  # 序号从1开始，所以减1
+            if 0 <= item_number < len(self.accounts):
+                self.check_single_account_ban_status(item_number)
+            return
+            
+        # 处理其他列的复制功能
+        self.copy_cell_content(event)
     
     def copy_cell_content(self, event):
         """根据双击的列复制相应内容"""
@@ -1681,9 +1650,28 @@ class AccountManager:
         self.status_message.set("正在刷新账号状态...")
         self.root.update()  # 强制更新界面以显示提示消息
         
-        # 启动后台检查任务
+        # 启动后台检查任务，现在只检查本地时间
         self.background_task_running = True
-        threading.Thread(target=self.background_check_task, daemon=True).start()
+        
+        def run_local_check():
+            try:
+                # 执行状态更新 - 只根据本地时间判断
+                updated_ban = self.update_ban_status()
+                
+                # 执行段位更新
+                print("封禁状态检查完成，开始查询段位信息...")
+                updated_rank = self.update_account_ranks()
+                
+                # 在主线程中更新UI
+                self.root.after(0, lambda: self.finish_background_check(updated_ban, updated_rank))
+            except Exception as e:
+                print(f"后台检查任务异常: {str(e)}")
+                # 在主线程中更新状态
+                self.root.after(0, lambda: self.status_message.set(f"检查过程出错: {str(e)}"))
+                self.background_task_running = False
+        
+        # 启动后台线程
+        threading.Thread(target=run_local_check, daemon=True).start()
         
         # 延迟启用刷新按钮，即使任务还未完成
         self.root.after(5000, lambda: self.refresh_btn.configure(state="normal"))
@@ -1942,6 +1930,41 @@ class AccountManager:
         
         # 启动后台线程
         threading.Thread(target=run_rank_query, daemon=True).start()
+
+    def check_single_account_ban_status(self, account_index):
+        """通过API查询单个账号的封禁状态，并更新"""
+        if account_index < 0 or account_index >= len(self.accounts):
+            return
+            
+        account = self.accounts[account_index]
+        account_name = account.get('name', '未命名')
+        account_id = account.get('id', '')
+        
+        if not account_id:
+            messagebox.showinfo("提示", f"账号 {account_name} 没有设置ID，无法查询API")
+            return
+            
+        # 更新状态栏
+        self.status_message.set(f"正在查询账号 {account_name} 的封禁状态...")
+        self.root.update()  # 强制更新界面显示
+        
+        try:
+            # 查询账号封禁状态
+            account_updated = self.check_ban_real(account)
+            
+            if account_updated:
+                # 如果状态有更新，更新UI并保存
+                self.update_single_account_ui(account_index)
+                self.save_accounts()
+                self.status_message.set(f"账号 {account_name} 封禁状态已更新")
+            else:
+                self.status_message.set(f"账号 {account_name} 封禁状态未变")
+                
+            # 3秒后清空状态栏
+            self.root.after(3000, lambda: self.status_message.set(""))
+        except Exception as e:
+            messagebox.showerror("错误", f"查询账号 {account_name} 封禁状态时出错: {str(e)}")
+            self.status_message.set("查询出错")
 
 if __name__ == "__main__":
     root = tk.Tk()
