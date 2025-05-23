@@ -665,10 +665,18 @@ class AccountManager:
             
         # 如果点击的是状态列，执行API查询
         if column_name == "status":
-            # 找到对应的账号索引
-            item_number = int(values[0]) - 1  # 序号从1开始，所以减1
-            if 0 <= item_number < len(self.accounts):
-                self.check_single_account_ban_status(item_number)
+            # 通过账号名称查找对应的账号索引
+            account_name = str(values[1])  # 账号名称在第二列
+            account_index = None
+            for i, account in enumerate(self.accounts):
+                if str(account["name"]) == account_name:
+                    account_index = i
+                    break
+                    
+            if account_index is not None:
+                self.check_single_account_ban_status(account_index)
+            else:
+                messagebox.showerror("错误", f"找不到账号: {account_name}")
             return
             
         # 处理其他列的复制功能
