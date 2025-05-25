@@ -230,56 +230,75 @@ class AccountManager:
     def update_single_account_ui(self, idx):
         """更新单个账号的UI显示"""
         # 这个方法会在主线程中被调用
-        # 找到对应的树项并更新
+        # 获取要更新的账号信息
+        if idx < 0 or idx >= len(self.accounts):
+            return
+            
+        account = self.accounts[idx]
+        account_name = str(account["name"])
+        
+        # 在树视图中查找对应的项目（通过账号名称匹配）
         items = self.tree.get_children()
-        if 0 <= idx < len(items):
-            item_id = items[idx]
-            account = self.accounts[idx]
+        target_item = None
+        
+        for item_id in items:
+            values = self.tree.item(item_id, "values")
+            if values and len(values) > 1 and str(values[1]) == account_name:
+                target_item = item_id
+                break
+        
+        if not target_item:
+            print(f"警告：在树视图中找不到账号 {account_name}")
+            return
             
-            # 获取状态和解封时间显示
-            status = "❌" if account["status"] else "✅"
-            unban_time_display = ""
-            if account["status"] and account["unban_time"]:
-                try:
-                    unban_time = datetime.datetime.strptime(account["unban_time"], "%Y-%m-%d %H:%M:%S")
-                    unban_time_display = unban_time.strftime("%m-%d %H:%M")
-                except:
-                    unban_time_display = account["unban_time"]
-            
-            # 获取等级，如果等级为0则显示为空
-            level_display = ""
-            if "level" in account and account["level"] > 0:
-                level_display = str(account["level"])
-            
-            # 构建TPP段位显示，结合段位和分数
-            tpp_rank_display = account.get("tpp_rank", "未定级")
-            tpp_rank_point = account.get("tpp_rank_point", 0)
-            if tpp_rank_display != "未定级" and tpp_rank_point > 0:
-                tpp_rank_display = f"{tpp_rank_display}({tpp_rank_point})"
-            
-            # 构建FPP段位显示，结合段位和分数
-            fpp_rank_display = account.get("fpp_rank", "未定级")
-            fpp_rank_point = account.get("fpp_rank_point", 0)
-            if fpp_rank_display != "未定级" and fpp_rank_point > 0:
-                fpp_rank_display = f"{fpp_rank_display}({fpp_rank_point})"
-            
-            # 更新表项
-            self.tree.item(item_id, values=(
-                idx + 1,
-                str(account["name"]),
-                level_display,  # 没有等级或等级为0时显示为空
-                fpp_rank_display,  # 使用组合的FPP段位显示
-                tpp_rank_display,  # 使用组合的TPP段位显示
-                status,
-                unban_time_display,
-                str(account.get("extended_ban", "")),
-                str(account["phone"]),
-                str(account.get("id", "")),
-                str(account.get("note", ""))
-            ))
-            
-            # 更新统计信息
-            self.update_stats_info()
+        # 获取状态和解封时间显示
+        status = "❌" if account["status"] else "✅"
+        unban_time_display = ""
+        if account["status"] and account["unban_time"]:
+            try:
+                unban_time = datetime.datetime.strptime(account["unban_time"], "%Y-%m-%d %H:%M:%S")
+                unban_time_display = unban_time.strftime("%m-%d %H:%M")
+            except:
+                unban_time_display = account["unban_time"]
+        
+        # 获取等级，如果等级为0则显示为空
+        level_display = ""
+        if "level" in account and account["level"] > 0:
+            level_display = str(account["level"])
+        
+        # 构建TPP段位显示，结合段位和分数
+        tpp_rank_display = account.get("tpp_rank", "未定级")
+        tpp_rank_point = account.get("tpp_rank_point", 0)
+        if tpp_rank_display != "未定级" and tpp_rank_point > 0:
+            tpp_rank_display = f"{tpp_rank_display}({tpp_rank_point})"
+        
+        # 构建FPP段位显示，结合段位和分数
+        fpp_rank_display = account.get("fpp_rank", "未定级")
+        fpp_rank_point = account.get("fpp_rank_point", 0)
+        if fpp_rank_display != "未定级" and fpp_rank_point > 0:
+            fpp_rank_display = f"{fpp_rank_display}({fpp_rank_point})"
+        
+        # 获取当前项目的序号（在排序后的位置）
+        current_values = self.tree.item(target_item, "values")
+        display_number = current_values[0] if current_values else "1"
+        
+        # 更新表项
+        self.tree.item(target_item, values=(
+            display_number,  # 保持当前显示的序号
+            str(account["name"]),
+            level_display,  # 没有等级或等级为0时显示为空
+            fpp_rank_display,  # 使用组合的FPP段位显示
+            tpp_rank_display,  # 使用组合的TPP段位显示
+            status,
+            unban_time_display,
+            str(account.get("extended_ban", "")),
+            str(account["phone"]),
+            str(account.get("id", "")),
+            str(account.get("note", ""))
+        ))
+        
+        # 更新统计信息
+        self.update_stats_info()
     
     def check_ban_real(self, account):
         """
